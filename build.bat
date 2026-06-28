@@ -17,13 +17,15 @@ echo === Segra build ===
 echo Root: %ROOT%
 if defined VERSION_ARG echo Version: %~1
 
-call :require dotnet
+call :refresh_path
+
+call :ensure_tool dotnet "Microsoft.DotNet.SDK.10" "https://dotnet.microsoft.com/download/dotnet/10.0"
 if errorlevel 1 goto :fail
 
-call :require node
+call :ensure_tool node "OpenJS.NodeJS.LTS" "https://nodejs.org/"
 if errorlevel 1 goto :fail
 
-call :require npm
+call :ensure_tool npm "OpenJS.NodeJS.LTS" "https://nodejs.org/"
 if errorlevel 1 goto :fail
 
 call :close_running_app
@@ -82,6 +84,15 @@ echo Executable: "%PUBLISH_DIR%\Segra.exe"
 echo.
 exit /b 0
 
+:refresh_path
+if exist "%ProgramFiles%\nodejs" set "PATH=%ProgramFiles%\nodejs;%PATH%"
+if exist "%ProgramFiles(x86)%\nodejs" set "PATH=%ProgramFiles(x86)%\nodejs;%PATH%"
+if exist "%LocalAppData%\Programs\nodejs" set "PATH=%LocalAppData%\Programs\nodejs;%PATH%"
+if exist "%AppData%\npm" set "PATH=%AppData%\npm;%PATH%"
+if exist "%ProgramFiles%\dotnet" set "PATH=%ProgramFiles%\dotnet;%PATH%"
+if exist "%LocalAppData%\Microsoft\dotnet" set "PATH=%LocalAppData%\Microsoft\dotnet;%PATH%"
+exit /b 0
+
 :close_running_app
 tasklist /fi "imagename eq Segra.exe" 2>nul | find /i "Segra.exe" >nul
 if errorlevel 1 exit /b 0
@@ -98,12 +109,42 @@ if errorlevel 1 (
 )
 exit /b 0
 
-:require
-where %1 >nul 2>nul
+:ensure_tool
+where %~1 >nul 2>nul
+if not errorlevel 1 exit /b 0
+
+echo.
+echo ERROR: %~1 was not found on PATH.
+echo Segra needs %~1 to build.
+
+where winget >nul 2>nul
 if errorlevel 1 (
   echo.
-  echo ERROR: %1 was not found on PATH.
-  echo Please install %1 and try again.
+  echo winget was not found, so the build script cannot install it automatically.
+  echo Install it manually from:
+  echo   %~3
+  echo Then open a new Command Prompt and run build.bat again.
+  exit /b 1
+)
+
+choice /m "Install %~1 now with winget"
+if errorlevel 2 (
+  echo.
+  echo Install it manually from:
+  echo   %~3
+  echo Then open a new Command Prompt and run build.bat again.
+  exit /b 1
+)
+
+winget install --id %~2 --exact --source winget --accept-package-agreements --accept-source-agreements
+if errorlevel 1 exit /b 1
+
+call :refresh_path
+where %~1 >nul 2>nul
+if errorlevel 1 (
+  echo.
+  echo %~1 was installed, but this Command Prompt still cannot find it.
+  echo Open a new Command Prompt and run build.bat again.
   exit /b 1
 )
 exit /b 0
