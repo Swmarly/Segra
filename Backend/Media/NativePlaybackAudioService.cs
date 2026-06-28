@@ -10,6 +10,8 @@ namespace Segra.Backend.Media
         private static WaveOutEvent? _output;
         private static string? _currentPath;
         private static double _lastRequestedTime;
+        private const int OutputLatencyMs = 80;
+        private const double DriftToleranceSeconds = 0.12;
 
         public static void Sync(
             string? filePath,
@@ -33,7 +35,11 @@ namespace Segra.Backend.Media
                     {
                         StopLocked();
                         _reader = new MediaFoundationReader(filePath);
-                        _output = new WaveOutEvent();
+                        _output = new WaveOutEvent
+                        {
+                            DesiredLatency = OutputLatencyMs,
+                            NumberOfBuffers = 2
+                        };
                         _output.Init(_reader);
                         _currentPath = filePath;
                     }
@@ -53,11 +59,14 @@ namespace Segra.Backend.Media
                         return;
                     }
 
+                    // WaveOut buffers audio ahead of the speaker, so seek slightly ahead of the
+                    // video clock and keep the correction window tight enough to avoid audible lag.
+                    var targetSeconds = timeSeconds + OutputLatencyMs / 1000.0;
                     var currentSeconds = _reader.CurrentTime.TotalSeconds;
-                    if (Math.Abs(currentSeconds - timeSeconds) > 0.35 ||
+                    if (Math.Abs(currentSeconds - targetSeconds) > DriftToleranceSeconds ||
                         Math.Abs(_lastRequestedTime - timeSeconds) > 2.0)
                     {
-                        SeekLocked(timeSeconds);
+                        SeekLocked(targetSeconds);
                     }
                     _lastRequestedTime = timeSeconds;
 

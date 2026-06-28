@@ -103,6 +103,7 @@ function renderWaveformRegion(
 }
 
 const PLAYBACK_SPEEDS = [0.25, 0.5, 1, 1.5, 2] as const;
+const NATIVE_AUDIO_SYNC_INTERVAL_MS = 100;
 const formatPlaybackRateLabel = (rate: number) => `${rate}x`;
 
 const DEFAULT_ICON_MAPPING: Record<BookmarkType, LucideIcon> = {
@@ -425,7 +426,7 @@ export default function VideoComponent({ video }: { video: Content }) {
       if (!vid) return;
 
       const now = performance.now();
-      if (!force && now - nativeAudioLastSyncRef.current < 500) return;
+      if (!force && now - nativeAudioLastSyncRef.current < NATIVE_AUDIO_SYNC_INTERVAL_MS) return;
       nativeAudioLastSyncRef.current = now;
 
       const state = nativeAudioStateRef.current;
