@@ -683,6 +683,13 @@ namespace Segra.Backend.Core
                 hasChanges = true;
             }
 
+            if (settings.DiscardSessionAfterHighlights != updatedSettings.DiscardSessionAfterHighlights)
+            {
+                Log.Information($"DiscardSessionAfterHighlights changed from '{settings.DiscardSessionAfterHighlights}' to '{updatedSettings.DiscardSessionAfterHighlights}'");
+                settings.DiscardSessionAfterHighlights = updatedSettings.DiscardSessionAfterHighlights;
+                hasChanges = true;
+            }
+
             if (settings.HighlightPaddingBefore != updatedSettings.HighlightPaddingBefore)
             {
                 Log.Information($"HighlightPaddingBefore changed from '{settings.HighlightPaddingBefore}' to '{updatedSettings.HighlightPaddingBefore}'");

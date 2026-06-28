@@ -41,6 +41,21 @@ export default function HighlightsSection({ settings, updateSettings }: Highligh
             </span>
           </label>
         </div>
+        <div className="flex items-center">
+          <label className="flex items-center gap-2">
+            <input
+              type="checkbox"
+              name="discardSessionAfterHighlights"
+              checked={settings.discardSessionAfterHighlights}
+              onChange={(e) => updateSettings({ discardSessionAfterHighlights: e.target.checked })}
+              className="checkbox checkbox-primary checkbox-sm"
+              disabled={!settings.enableAi || !settings.autoGenerateHighlights}
+            />
+            <span className="flex items-center gap-1 cursor-pointer">
+              Discard Full Session After Highlights Are Generated
+            </span>
+          </label>
+        </div>
 
         <div className="pt-3 border-t border-custom space-y-4">
           <div>

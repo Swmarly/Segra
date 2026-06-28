@@ -1366,6 +1366,7 @@ namespace Segra.Backend.Recorder
                 // falling back to the global setting if no recording is active.
                 RecordingMode effectiveMode = _activeEffectiveSettings?.RecordingMode ?? Settings.Instance.RecordingMode;
                 bool effectiveDiscard = _activeEffectiveSettings?.DiscardSessionsWithoutBookmarks ?? Settings.Instance.DiscardSessionsWithoutBookmarks;
+                bool discardSessionAfterHighlights = Settings.Instance.DiscardSessionAfterHighlights;
                 bool isReplayBufferMode = effectiveMode == RecordingMode.Buffer;
                 bool isHybridMode = effectiveMode == RecordingMode.Hybrid;
 
@@ -1438,7 +1439,12 @@ namespace Segra.Backend.Recorder
                     {
                         // Check if we should discard the session due to no manual bookmarks
                         bool hasManualBookmarks = AppState.Instance.Recording.Bookmarks.Any(b => b.Type == BookmarkType.Manual);
-                        if (effectiveDiscard && !hasManualBookmarks)
+                        bool hasHighlightBookmarks = AppState.Instance.Recording.Bookmarks.Any(b => b.Type.IncludeInHighlight());
+                        bool deferDiscardUntilHighlights = discardSessionAfterHighlights &&
+                            Settings.Instance.EnableAi &&
+                            Settings.Instance.AutoGenerateHighlights &&
+                            hasHighlightBookmarks;
+                        if (effectiveDiscard && !hasManualBookmarks && !deferDiscardUntilHighlights)
                         {
                             Log.Information("Discarding session recording without manual bookmarks");
                             try
@@ -1535,7 +1541,12 @@ namespace Segra.Backend.Recorder
                     {
                         // Check if we should discard the session due to no manual bookmarks
                         bool hasManualBookmarks = AppState.Instance.Recording.Bookmarks.Any(b => b.Type == BookmarkType.Manual);
-                        if (effectiveDiscard && !hasManualBookmarks)
+                        bool hasHighlightBookmarks = AppState.Instance.Recording.Bookmarks.Any(b => b.Type.IncludeInHighlight());
+                        bool deferDiscardUntilHighlights = discardSessionAfterHighlights &&
+                            Settings.Instance.EnableAi &&
+                            Settings.Instance.AutoGenerateHighlights &&
+                            hasHighlightBookmarks;
+                        if (effectiveDiscard && !hasManualBookmarks && !deferDiscardUntilHighlights)
                         {
                             Log.Information("Hybrid: Discarding session recording without manual bookmarks");
                             try
@@ -1607,13 +1618,32 @@ namespace Segra.Backend.Recorder
                 if (Settings.Instance.EnableAi && Settings.Instance.AutoGenerateHighlights && !isReplayBufferMode && bookmarks.Any(b => b.Type.IncludeInHighlight()))
                 {
                     string fileName = Path.GetFileNameWithoutExtension(filePath);
-                    _ = AiService.CreateHighlight(fileName);
+                    _ = CreateHighlightAndMaybeDiscardSession(fileName, filePath, discardSessionAfterHighlights);
                 }
             }
             finally
             {
                 _stopRecordingSemaphore.Release();
             }
+        }
+
+        private static async Task CreateHighlightAndMaybeDiscardSession(string fileName, string filePath, bool discardSessionAfterHighlights)
+        {
+            var result = await AiService.CreateHighlight(fileName);
+
+            if (!discardSessionAfterHighlights)
+            {
+                return;
+            }
+
+            if (result != HighlightCreationResult.Created)
+            {
+                Log.Information("Keeping session recording because highlight generation did not complete successfully. Result: {Result}", result);
+                return;
+            }
+
+            Log.Information("Discarding full session after highlight generation completed: {FilePath}", filePath);
+            await ContentService.DeleteContent(filePath, Content.ContentType.Session);
         }
 
         /// <summary>

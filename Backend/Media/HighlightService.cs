@@ -8,6 +8,15 @@ using Segra.Backend.Windows.Storage;
 
 namespace Segra.Backend.Media
 {
+    public enum HighlightCreationResult
+    {
+        Created,
+        NoSourceContent,
+        NoHighlightMoments,
+        SourceFileMissing,
+        Failed
+    }
+
     /// <summary>
     /// Service for creating highlight videos from bookmarks using fast stream copy.
     /// </summary>
@@ -17,7 +26,7 @@ namespace Segra.Backend.Media
         /// Creates a highlight video from all highlight-worthy bookmarks (Kill, Goal, etc.).
         /// Uses stream copy for fast extraction without re-encoding.
         /// </summary>
-        public static async Task CreateHighlightFromBookmarks(string fileName, Action<int, string>? progressCallback = null)
+        public static async Task<HighlightCreationResult> CreateHighlightFromBookmarks(string fileName, Action<int, string>? progressCallback = null)
         {
             try
             {
@@ -27,7 +36,7 @@ namespace Segra.Backend.Media
                 if (content == null)
                 {
                     Log.Warning($"No content found matching fileName: {fileName}");
-                    return;
+                    return HighlightCreationResult.NoSourceContent;
                 }
 
                 List<Bookmark> highlightBookmarks = content.Bookmarks
@@ -39,7 +48,7 @@ namespace Segra.Backend.Media
                 {
                     Log.Information($"No highlight bookmarks found for: {fileName}");
                     progressCallback?.Invoke(-1, "No highlight moments found in this session");
-                    return;
+                    return HighlightCreationResult.NoHighlightMoments;
                 }
 
                 Log.Information($"Found {highlightBookmarks.Count} bookmarks to include in highlight");
@@ -66,7 +75,7 @@ namespace Segra.Backend.Media
                 {
                     Log.Error($"Input video file not found: {inputFilePath}");
                     progressCallback?.Invoke(-1, "Source video not found");
-                    return;
+                    return HighlightCreationResult.SourceFileMissing;
                 }
 
                 // Output highlights are organized by game
@@ -91,7 +100,7 @@ namespace Segra.Backend.Media
                 {
                     Log.Error("Failed to create highlight video");
                     progressCallback?.Invoke(-1, "Failed to create highlight");
-                    return;
+                    return HighlightCreationResult.Failed;
                 }
 
                 // Ensure the output is fully flushed (matters for network drives) before reading it back.
@@ -116,11 +125,13 @@ namespace Segra.Backend.Media
 
                 progressCallback?.Invoke(100, "Done");
                 Log.Information($"Highlight created successfully: {outputFilePath}");
+                return HighlightCreationResult.Created;
             }
             catch (Exception ex)
             {
                 Log.Error(ex, $"Error creating highlight for {fileName}");
                 progressCallback?.Invoke(-1, $"Error: {ex.Message}");
+                return HighlightCreationResult.Failed;
             }
         }
 

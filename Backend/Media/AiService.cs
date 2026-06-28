@@ -6,7 +6,7 @@ namespace Segra.Backend.Media
 {
     internal class AiService
     {
-        public static async Task CreateHighlight(string fileName)
+        public static async Task<HighlightCreationResult> CreateHighlight(string fileName)
         {
             string highlightId = Guid.NewGuid().ToString();
             Content? content = null;
@@ -19,7 +19,7 @@ namespace Segra.Backend.Media
                 if (content == null)
                 {
                     Log.Warning($"No content found matching fileName: {fileName}");
-                    return;
+                    return HighlightCreationResult.NoSourceContent;
                 }
 
                 int momentCount = content.Bookmarks.Count(b => b.Type.IncludeInHighlight());
@@ -27,12 +27,12 @@ namespace Segra.Backend.Media
                 {
                     Log.Information($"No highlight bookmarks found for: {fileName}");
                     await SendProgress(highlightId, -1, "error", "No highlight moments found in this session", content);
-                    return;
+                    return HighlightCreationResult.NoHighlightMoments;
                 }
 
                 await SendProgress(highlightId, 0, "processing", $"Found {momentCount} moments", content);
 
-                await HighlightService.CreateHighlightFromBookmarks(fileName, async (progress, message) =>
+                return await HighlightService.CreateHighlightFromBookmarks(fileName, async (progress, message) =>
                 {
                     string status = progress < 0 ? "error" : progress >= 100 ? "done" : "processing";
                     await SendProgress(highlightId, progress, status, message, content);
@@ -45,6 +45,7 @@ namespace Segra.Backend.Media
                 {
                     await SendProgress(highlightId, -1, "error", $"Error: {ex.Message}", content);
                 }
+                return HighlightCreationResult.Failed;
             }
         }
 
