@@ -1,0 +1,77 @@
+{
+  "_framer-motion.DEq2Je_Y.js": {
+    "file": "assets/framer-motion.DEq2Je_Y.js",
+    "name": "framer-motion",
+    "imports": [
+      "_rolldown-runtime.Cyuzqnbw.js"
+    ]
+  },
+  "_lucide.DuwqxdVV.js": {
+    "file": "assets/lucide.DuwqxdVV.js",
+    "name": "lucide",
+    "imports": [
+      "_rolldown-runtime.Cyuzqnbw.js",
+      "_framer-motion.DEq2Je_Y.js"
+    ]
+  },
+  "_mp4box.w5vVUmeg.js": {
+    "file": "assets/mp4box.w5vVUmeg.js",
+    "name": "mp4box"
+  },
+  "_react-dnd.ByP--IaT.js": {
+    "file": "assets/react-dnd.ByP--IaT.js",
+    "name": "react-dnd",
+    "imports": [
+      "_rolldown-runtime.Cyuzqnbw.js",
+      "_framer-motion.DEq2Je_Y.js"
+    ]
+  },
+  "_react-dom.By5gcUFo.js": {
+    "file": "assets/react-dom.By5gcUFo.js",
+    "name": "react-dom",
+    "imports": [
+      "_rolldown-runtime.Cyuzqnbw.js",
+      "_framer-motion.DEq2Je_Y.js"
+    ]
+  },
+  "_rolldown-runtime.Cyuzqnbw.js": {
+    "file": "assets/rolldown-runtime.Cyuzqnbw.js",
+    "name": "rolldown-runtime"
+  },
+  "_tanstack.Cdtw3RqG.js": {
+    "file": "assets/tanstack.Cdtw3RqG.js",
+    "name": "tanstack",
+    "imports": [
+      "_rolldown-runtime.Cyuzqnbw.js",
+      "_framer-motion.DEq2Je_Y.js"
+    ]
+  },
+  "_vendor.23svAhJg.js": {
+    "file": "assets/vendor.23svAhJg.js",
+    "name": "vendor",
+    "imports": [
+      "_rolldown-runtime.Cyuzqnbw.js",
+      "_framer-motion.DEq2Je_Y.js",
+      "_react-dom.By5gcUFo.js"
+    ]
+  },
+  "index.html": {
+    "file": "assets/index.BU5n80E4.js",
+    "name": "index",
+    "src": "index.html",
+    "isEntry": true,
+    "imports": [
+      "_rolldown-runtime.Cyuzqnbw.js",
+      "_lucide.DuwqxdVV.js",
+      "_react-dnd.ByP--IaT.js",
+      "_tanstack.Cdtw3RqG.js",
+      "_framer-motion.DEq2Je_Y.js",
+      "_vendor.23svAhJg.js",
+      "_mp4box.w5vVUmeg.js",
+      "_react-dom.By5gcUFo.js"
+    ],
+    "css": [
+      "assets/index.CxjoMrDd.css"
+    ]
+  }
+}
