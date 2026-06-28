@@ -3,7 +3,8 @@ setlocal EnableExtensions
 
 set "ROOT=%~dp0"
 set "FRONTEND=%ROOT%Frontend"
-set "WEBROOT=%ROOT%Resources\wwwroot"
+set "RESOURCE_WEBROOT=%ROOT%Resources\wwwroot"
+set "CONTENT_WEBROOT=%ROOT%wwwroot"
 set "PUBLISH_DIR=%ROOT%publish"
 set "VERSION_ARG="
 
@@ -51,13 +52,10 @@ popd
 
 echo.
 echo === Copying frontend build ===
-if not exist "%WEBROOT%" mkdir "%WEBROOT%"
+call :sync_frontend "%RESOURCE_WEBROOT%"
 if errorlevel 1 goto :fail
 
-del /f /q "%WEBROOT%\*" >nul 2>nul
-for /d %%D in ("%WEBROOT%\*") do rd /s /q "%%D"
-
-xcopy "%FRONTEND%\dist\*" "%WEBROOT%\" /e /i /y >nul
+call :sync_frontend "%CONTENT_WEBROOT%"
 if errorlevel 1 goto :fail
 
 echo.
@@ -82,6 +80,10 @@ echo === Build complete ===
 echo Output: "%PUBLISH_DIR%"
 echo Executable: "%PUBLISH_DIR%\Segra.exe"
 echo.
+echo === Starting Segra ===
+start "" "%PUBLISH_DIR%\Segra.exe"
+if errorlevel 1 goto :fail
+
 exit /b 0
 
 :refresh_path
@@ -91,6 +93,18 @@ if exist "%LocalAppData%\Programs\nodejs" set "PATH=%LocalAppData%\Programs\node
 if exist "%AppData%\npm" set "PATH=%AppData%\npm;%PATH%"
 if exist "%ProgramFiles%\dotnet" set "PATH=%ProgramFiles%\dotnet;%PATH%"
 if exist "%LocalAppData%\Microsoft\dotnet" set "PATH=%LocalAppData%\Microsoft\dotnet;%PATH%"
+exit /b 0
+
+:sync_frontend
+set "DEST=%~1"
+if not exist "%DEST%" mkdir "%DEST%"
+if errorlevel 1 exit /b 1
+
+del /f /q "%DEST%\*" >nul 2>nul
+for /d %%D in ("%DEST%\*") do rd /s /q "%%D"
+
+xcopy "%FRONTEND%\dist\*" "%DEST%\" /e /i /y >nul
+if errorlevel 1 exit /b 1
 exit /b 0
 
 :close_running_app
