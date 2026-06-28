@@ -1,4 +1,5 @@
 using NAudio.Wave;
+using NAudio.CoreAudioApi;
 using Serilog;
 
 namespace Segra.Backend.Media
@@ -7,11 +8,13 @@ namespace Segra.Backend.Media
     {
         private static readonly object Lock = new();
         private static MediaFoundationReader? _reader;
-        private static WaveOutEvent? _output;
+        private static IWavePlayer? _output;
         private static string? _currentPath;
         private static double _lastRequestedTime;
-        private const int OutputLatencyMs = 80;
-        private const double DriftToleranceSeconds = 0.12;
+        private static DateTime _lastCorrectionUtc = DateTime.MinValue;
+        private const int OutputLatencyMs = 150;
+        private const double DriftToleranceSeconds = 0.45;
+        private static readonly TimeSpan MinCorrectionInterval = TimeSpan.FromSeconds(1);
 
         public static void Sync(
             string? filePath,
@@ -19,7 +22,8 @@ namespace Segra.Backend.Media
             bool playing,
             float volume,
             bool muted,
-            double playbackRate)
+            double playbackRate,
+            bool forceSeek = false)
         {
             lock (Lock)
             {
@@ -35,13 +39,10 @@ namespace Segra.Backend.Media
                     {
                         StopLocked();
                         _reader = new MediaFoundationReader(filePath);
-                        _output = new WaveOutEvent
-                        {
-                            DesiredLatency = OutputLatencyMs,
-                            NumberOfBuffers = 2
-                        };
+                        _output = new WasapiOut(AudioClientShareMode.Shared, true, OutputLatencyMs);
                         _output.Init(_reader);
                         _currentPath = filePath;
+                        forceSeek = true;
                     }
 
                     if (_reader == null || _output == null) return;
@@ -54,19 +55,33 @@ namespace Segra.Backend.Media
                     if (Math.Abs(playbackRate - 1) > 0.01)
                     {
                         _output.Pause();
-                        SeekLocked(timeSeconds);
+                        if (forceSeek || Math.Abs(_lastRequestedTime - timeSeconds) > 0.25)
+                        {
+                            SeekLocked(timeSeconds);
+                        }
                         _lastRequestedTime = timeSeconds;
                         return;
                     }
 
-                    // WaveOut buffers audio ahead of the speaker, so seek slightly ahead of the
-                    // video clock and keep the correction window tight enough to avoid audible lag.
-                    var targetSeconds = timeSeconds + OutputLatencyMs / 1000.0;
-                    var currentSeconds = _reader.CurrentTime.TotalSeconds;
-                    if (Math.Abs(currentSeconds - targetSeconds) > DriftToleranceSeconds ||
-                        Math.Abs(_lastRequestedTime - timeSeconds) > 2.0)
+                    if (forceSeek)
                     {
-                        SeekLocked(targetSeconds);
+                        SeekLocked(timeSeconds);
+                    }
+                    else if (playing && !muted)
+                    {
+                        // MediaFoundationReader.CurrentTime reflects decoded/read position, not
+                        // exactly what has reached the speakers. Treat it as a coarse health check
+                        // and correct only when drift is large and sustained; frequent seeks are
+                        // much more audible than small clock error.
+                        var heardSeconds = _reader.CurrentTime.TotalSeconds - OutputLatencyMs / 1000.0;
+                        var drift = heardSeconds - timeSeconds;
+                        var now = DateTime.UtcNow;
+                        if (Math.Abs(drift) > DriftToleranceSeconds &&
+                            now - _lastCorrectionUtc >= MinCorrectionInterval)
+                        {
+                            SeekLocked(timeSeconds);
+                            _lastCorrectionUtc = now;
+                        }
                     }
                     _lastRequestedTime = timeSeconds;
 
@@ -123,6 +138,7 @@ namespace Segra.Backend.Media
             _reader = null;
             _currentPath = null;
             _lastRequestedTime = 0;
+            _lastCorrectionUtc = DateTime.MinValue;
         }
     }
 }

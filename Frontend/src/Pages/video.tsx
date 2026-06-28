@@ -103,7 +103,7 @@ function renderWaveformRegion(
 }
 
 const PLAYBACK_SPEEDS = [0.25, 0.5, 1, 1.5, 2] as const;
-const NATIVE_AUDIO_SYNC_INTERVAL_MS = 100;
+const NATIVE_AUDIO_SYNC_INTERVAL_MS = 500;
 const formatPlaybackRateLabel = (rate: number) => `${rate}x`;
 
 const DEFAULT_ICON_MAPPING: Record<BookmarkType, LucideIcon> = {
@@ -403,6 +403,10 @@ export default function VideoComponent({ video }: { video: Content }) {
   const controlsShowTimeoutRef = useRef<number | null>(null);
   const isPointerOverControlsRef = useRef(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const isFullscreenRef = useRef(false);
+  const fullscreenAudioTransitionRef = useRef(false);
+  const fullscreenWasPlayingRef = useRef(false);
+  const fullscreenTransitionTimeoutRef = useRef<number | null>(null);
   const nativeAudioStateRef = useRef({
     filePath: video.filePath,
     volume,
@@ -420,8 +424,15 @@ export default function VideoComponent({ video }: { video: Content }) {
     };
   }, [video.filePath, volume, isMuted, playbackRate]);
 
+  useLayoutEffect(() => {
+    isFullscreenRef.current = isFullscreen;
+  }, [isFullscreen]);
+
   const syncNativePlaybackAudio = useCallback(
-    (force = false, overrides?: Partial<{ playing: boolean; time: number; muted: boolean }>) => {
+    (
+      force = false,
+      overrides?: Partial<{ playing: boolean; time: number; muted: boolean; forceSeek: boolean }>,
+    ) => {
       const vid = videoRef.current;
       if (!vid) return;
 
@@ -430,17 +441,42 @@ export default function VideoComponent({ video }: { video: Content }) {
       nativeAudioLastSyncRef.current = now;
 
       const state = nativeAudioStateRef.current;
+      const requestedPlaying = overrides?.playing ?? (!vid.paused && !vid.ended);
+      const playing =
+        fullscreenAudioTransitionRef.current && fullscreenWasPlayingRef.current && !vid.ended
+          ? true
+          : requestedPlaying;
       sendMessageToBackend('SyncNativePlaybackAudio', {
         FilePath: state.filePath,
         Time: overrides?.time ?? vid.currentTime,
-        Playing: overrides?.playing ?? (!vid.paused && !vid.ended),
+        Playing: playing,
         Volume: state.volume,
         Muted: overrides?.muted ?? state.isMuted,
         PlaybackRate: vid.playbackRate || state.playbackRate || 1,
+        ForceSeek: overrides?.forceSeek ?? false,
       });
     },
     [],
   );
+
+  useEffect(() => {
+    const filePath = video.filePath;
+    return () => {
+      if (fullscreenTransitionTimeoutRef.current !== null) {
+        window.clearTimeout(fullscreenTransitionTimeoutRef.current);
+        fullscreenTransitionTimeoutRef.current = null;
+      }
+      sendMessageToBackend('SyncNativePlaybackAudio', {
+        FilePath: filePath,
+        Time: videoRef.current?.currentTime ?? 0,
+        Playing: false,
+        Volume: nativeAudioStateRef.current.volume,
+        Muted: true,
+        PlaybackRate: 1,
+        ForceSeek: false,
+      });
+    };
+  }, [video.filePath]);
 
   useEffect(() => {
     controlsVisibleRef.current = controlsVisible;
@@ -549,20 +585,25 @@ export default function VideoComponent({ video }: { video: Content }) {
       setDuration(vid.duration);
       setZoom(1);
       vid.muted = true;
-      syncNativePlaybackAudio(true, { playing: false, time: vid.currentTime });
+      syncNativePlaybackAudio(true, { playing: false, time: vid.currentTime, forceSeek: true });
     };
 
     const onPlay = () => {
       vid.muted = true;
       setIsPlaying(true);
-      syncNativePlaybackAudio(true, { playing: true });
+      syncNativePlaybackAudio(true, { playing: true, forceSeek: true });
     };
     const onPause = () => {
+      if (fullscreenAudioTransitionRef.current && fullscreenWasPlayingRef.current && !vid.ended) {
+        setIsPlaying(true);
+        syncNativePlaybackAudio(true, { playing: true, time: vid.currentTime });
+        return;
+      }
       setIsPlaying(false);
       syncNativePlaybackAudio(true, { playing: false });
     };
     const onSeeked = () => {
-      syncNativePlaybackAudio(true);
+      syncNativePlaybackAudio(true, { forceSeek: true });
     };
     const onVolumeChange = () => {
       if (vid) {
@@ -579,7 +620,7 @@ export default function VideoComponent({ video }: { video: Content }) {
         const r = vid.playbackRate || 1;
         setPlaybackRate(r);
         localStorage.setItem('segra-playbackRate', r.toString());
-        syncNativePlaybackAudio(true);
+        syncNativePlaybackAudio(true, { forceSeek: true });
       }
     };
 
@@ -648,7 +689,7 @@ export default function VideoComponent({ video }: { video: Content }) {
         showControlsTemporarily();
         return;
       }
-      if (e.key === 'Escape' && isFullscreen) {
+      if (e.key === 'Escape' && isFullscreenRef.current) {
         e.preventDefault();
         exitFullscreen();
       }
@@ -665,9 +706,8 @@ export default function VideoComponent({ video }: { video: Content }) {
       vid.removeEventListener('volumechange', onVolumeChange);
       vid.removeEventListener('ratechange', onRateChange);
       window.removeEventListener('keydown', handleKeyDown, keyOptions as any);
-      syncNativePlaybackAudio(true, { playing: false });
     };
-  }, [volume, isMuted, isFullscreen, audioTracks.isMultiTrack, syncNativePlaybackAudio]);
+  }, [volume, isMuted, audioTracks.isMultiTrack, syncNativePlaybackAudio]);
 
   // Per-segment audio override state, kept in refs for the rAF loop below.
   // `segmentsDirtyRef` is separate from the id ref because `null` is already
@@ -1056,48 +1096,57 @@ export default function VideoComponent({ video }: { video: Content }) {
     handlePlayPause();
   };
 
+  const keepNativeAudioDuringFullscreenTransition = () => {
+    const vid = videoRef.current;
+    const wasPlaying = !!vid && !vid.paused && !vid.ended;
+    fullscreenWasPlayingRef.current = wasPlaying;
+    fullscreenAudioTransitionRef.current = true;
+
+    if (fullscreenTransitionTimeoutRef.current !== null) {
+      window.clearTimeout(fullscreenTransitionTimeoutRef.current);
+      fullscreenTransitionTimeoutRef.current = null;
+    }
+
+    if (wasPlaying) {
+      syncNativePlaybackAudio(true, { playing: true, time: vid.currentTime });
+    }
+
+    fullscreenTransitionTimeoutRef.current = window.setTimeout(() => {
+      fullscreenAudioTransitionRef.current = false;
+      fullscreenTransitionTimeoutRef.current = null;
+      const currentVideo = videoRef.current;
+      if (!currentVideo) return;
+
+      if (fullscreenWasPlayingRef.current && currentVideo.paused && !currentVideo.ended) {
+        currentVideo.play().catch(() => {
+          // If WebView refuses the resume, keep native audio state aligned below.
+        });
+      }
+
+      syncNativePlaybackAudio(true, {
+        playing: fullscreenWasPlayingRef.current || (!currentVideo.paused && !currentVideo.ended),
+        time: currentVideo.currentTime,
+      });
+      fullscreenWasPlayingRef.current = false;
+    }, 1200);
+  };
+
   // Fullscreen controls: use browser fullscreen for the player and native fullscreen for Photino.
   const enterFullscreen = async () => {
+    keepNativeAudioDuringFullscreenTransition();
     setIsFullscreen(true);
     sendMessageToBackend('ToggleFullscreen', { enabled: true });
-    try {
-      const player = playerContainerRef.current;
-      if (player && document.fullscreenElement !== player) {
-        await player.requestFullscreen();
-      }
-    } catch {
-      // Keep the CSS/native fullscreen fallback active when WebView declines the request.
-    }
   };
 
   const exitFullscreen = async () => {
+    keepNativeAudioDuringFullscreenTransition();
     setIsFullscreen(false);
     sendMessageToBackend('ToggleFullscreen', { enabled: false });
-    try {
-      if (document.fullscreenElement) {
-        await document.exitFullscreen();
-      }
-    } catch {
-      // Native fullscreen has already been cleared above.
-    }
   };
 
   const toggleFullscreen = () => {
     void (isFullscreen ? exitFullscreen() : enterFullscreen());
   };
-
-  useEffect(() => {
-    const handleFullscreenChange = () => {
-      const active = document.fullscreenElement === playerContainerRef.current;
-      if (active === isFullscreen) return;
-
-      setIsFullscreen(active);
-      sendMessageToBackend('ToggleFullscreen', { enabled: active });
-    };
-
-    document.addEventListener('fullscreenchange', handleFullscreenChange);
-    return () => document.removeEventListener('fullscreenchange', handleFullscreenChange);
-  }, [isFullscreen]);
 
   // Prevent page scrollbars while our overlay is active
   useEffect(() => {

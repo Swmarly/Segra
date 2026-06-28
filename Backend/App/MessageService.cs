@@ -92,6 +92,8 @@ namespace Segra.Backend.App
                                 double playbackRate = nativeAudioParams.TryGetProperty("PlaybackRate", out var nativeAudioRateEl)
                                     ? nativeAudioRateEl.GetDouble()
                                     : 1;
+                                bool forceSeek = nativeAudioParams.TryGetProperty("ForceSeek", out var nativeAudioForceSeekEl)
+                                    && nativeAudioForceSeekEl.GetBoolean();
 
                                 NativePlaybackAudioService.Sync(
                                     filePath,
@@ -99,7 +101,8 @@ namespace Segra.Backend.App
                                     playing,
                                     volume,
                                     muted,
-                                    playbackRate);
+                                    playbackRate,
+                                    forceSeek);
                             }
                             break;
                         case "Login":
