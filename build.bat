@@ -7,8 +7,13 @@ set "RESOURCE_WEBROOT=%ROOT%Resources\wwwroot"
 set "CONTENT_WEBROOT=%ROOT%wwwroot"
 set "PUBLISH_DIR=%ROOT%publish"
 set "VERSION_ARG="
+set "CHECK_ONLY="
 
-if not "%~1"=="" set "VERSION_ARG=-p:Version=%~1"
+if /i "%~1"=="--check" (
+  set "CHECK_ONLY=1"
+) else (
+  if not "%~1"=="" set "VERSION_ARG=-p:Version=%~1"
+)
 
 cd /d "%ROOT%"
 if errorlevel 1 goto :fail
@@ -17,6 +22,19 @@ echo.
 echo === Segra build ===
 echo Root: %ROOT%
 if defined VERSION_ARG echo Version: %~1
+
+if defined CHECK_ONLY (
+  call :refresh_path
+  if errorlevel 1 goto :fail
+  call :ensure_tool dotnet "Microsoft.DotNet.SDK.10" "https://dotnet.microsoft.com/download/dotnet/10.0"
+  if errorlevel 1 goto :fail
+  call :ensure_tool node "OpenJS.NodeJS.LTS" "https://nodejs.org/"
+  if errorlevel 1 goto :fail
+  call :ensure_tool npm "OpenJS.NodeJS.LTS" "https://nodejs.org/"
+  if errorlevel 1 goto :fail
+  echo Build script check passed.
+  exit /b 0
+)
 
 call :refresh_path
 
