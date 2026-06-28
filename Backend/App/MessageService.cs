@@ -73,6 +73,35 @@ namespace Segra.Backend.App
                                 }
                             }
                             break;
+                        case "SyncNativePlaybackAudio":
+                            if (root.TryGetProperty("Parameters", out var nativeAudioParams))
+                            {
+                                string? filePath = nativeAudioParams.TryGetProperty("FilePath", out var nativeAudioPathEl)
+                                    ? nativeAudioPathEl.GetString()
+                                    : null;
+                                double timeSeconds = nativeAudioParams.TryGetProperty("Time", out var nativeAudioTimeEl)
+                                    ? nativeAudioTimeEl.GetDouble()
+                                    : 0;
+                                bool playing = nativeAudioParams.TryGetProperty("Playing", out var nativeAudioPlayingEl)
+                                    && nativeAudioPlayingEl.GetBoolean();
+                                float volume = nativeAudioParams.TryGetProperty("Volume", out var nativeAudioVolumeEl)
+                                    ? nativeAudioVolumeEl.GetSingle()
+                                    : 1;
+                                bool muted = nativeAudioParams.TryGetProperty("Muted", out var nativeAudioMutedEl)
+                                    && nativeAudioMutedEl.GetBoolean();
+                                double playbackRate = nativeAudioParams.TryGetProperty("PlaybackRate", out var nativeAudioRateEl)
+                                    ? nativeAudioRateEl.GetDouble()
+                                    : 1;
+
+                                NativePlaybackAudioService.Sync(
+                                    filePath,
+                                    timeSeconds,
+                                    playing,
+                                    volume,
+                                    muted,
+                                    playbackRate);
+                            }
+                            break;
                         case "Login":
                             root.TryGetProperty("Parameters", out JsonElement loginParameterElement);
                             string accessToken = loginParameterElement.GetProperty("accessToken").GetString()!;

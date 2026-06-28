@@ -1,3 +1,13 @@
-# Run lint-staged via npm, limited to Frontend staged files
-npx lint-staged
+# Husky adds node_modules/.bin to PATH, so call the local binary directly.
+# Some Windows shells expose Node as node.exe only; npm shims expect "node".
+if ! command -v node >/dev/null 2>&1 && command -v node.exe >/dev/null 2>&1; then
+  node_exe="$(command -v node.exe)"
+  node_shim_dir="$(mktemp -d)"
+  printf '#!/bin/sh\nexec "%s" "$@"\n' "$node_exe" > "$node_shim_dir/node"
+  chmod +x "$node_shim_dir/node"
+  PATH="$node_shim_dir:$PATH"
+  export PATH
+fi
+
+lint-staged
 

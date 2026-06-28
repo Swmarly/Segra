@@ -43,6 +43,8 @@ const GAME_INTEGRATIONS: GameIntegration[] = [
     bookmarks: ['Knocks', 'Eliminations', 'Assists', 'Champion'],
     isBeta: true,
     warningText: 'OCR based. Works best with English UI and may need crop/threshold tuning.',
+    backgroundImage:
+      'https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/1172470/febde7f5bf4a31faa14e98ce37fc5ebdb1a83498/capsule_616x353.jpg',
   },
   {
     id: 'rocket-league',

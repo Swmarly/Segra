@@ -402,6 +402,44 @@ export default function VideoComponent({ video }: { video: Content }) {
   const controlsShowTimeoutRef = useRef<number | null>(null);
   const isPointerOverControlsRef = useRef(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const nativeAudioStateRef = useRef({
+    filePath: video.filePath,
+    volume,
+    isMuted,
+    playbackRate,
+  });
+  const nativeAudioLastSyncRef = useRef(0);
+
+  useLayoutEffect(() => {
+    nativeAudioStateRef.current = {
+      filePath: video.filePath,
+      volume,
+      isMuted,
+      playbackRate,
+    };
+  }, [video.filePath, volume, isMuted, playbackRate]);
+
+  const syncNativePlaybackAudio = useCallback(
+    (force = false, overrides?: Partial<{ playing: boolean; time: number; muted: boolean }>) => {
+      const vid = videoRef.current;
+      if (!vid) return;
+
+      const now = performance.now();
+      if (!force && now - nativeAudioLastSyncRef.current < 500) return;
+      nativeAudioLastSyncRef.current = now;
+
+      const state = nativeAudioStateRef.current;
+      sendMessageToBackend('SyncNativePlaybackAudio', {
+        FilePath: state.filePath,
+        Time: overrides?.time ?? vid.currentTime,
+        Playing: overrides?.playing ?? (!vid.paused && !vid.ended),
+        Volume: state.volume,
+        Muted: overrides?.muted ?? state.isMuted,
+        PlaybackRate: vid.playbackRate || state.playbackRate || 1,
+      });
+    },
+    [],
+  );
 
   useEffect(() => {
     controlsVisibleRef.current = controlsVisible;
@@ -499,33 +537,39 @@ export default function VideoComponent({ video }: { video: Content }) {
     const vid = videoRef.current;
     if (!vid) return;
 
-    // Apply saved volume and muted state on load
-    // When multi-track is active, the hook controls muting
-    if (!audioTracks.isMultiTrack) {
-      vid.volume = volume;
-      vid.muted = isMuted;
-    }
+    // WebView2 owns media-element audio sessions, so keep the visual video element silent.
+    // Preview audio is rendered by the native Segra process via SyncNativePlaybackAudio.
+    vid.volume = volume;
+    vid.muted = true;
     // Apply saved playback rate
     vid.playbackRate = playbackRate;
 
     const onLoadedMetadata = () => {
       setDuration(vid.duration);
       setZoom(1);
+      vid.muted = true;
+      syncNativePlaybackAudio(true, { playing: false, time: vid.currentTime });
     };
 
-    const onPlay = () => setIsPlaying(true);
-    const onPause = () => setIsPlaying(false);
+    const onPlay = () => {
+      vid.muted = true;
+      setIsPlaying(true);
+      syncNativePlaybackAudio(true, { playing: true });
+    };
+    const onPause = () => {
+      setIsPlaying(false);
+      syncNativePlaybackAudio(true, { playing: false });
+    };
+    const onSeeked = () => {
+      syncNativePlaybackAudio(true);
+    };
     const onVolumeChange = () => {
       if (vid) {
-        // When multi-track audio is active, the video is muted by the hook
-        if (audioTracks.isMultiTrack) return;
-
         setVolume(vid.volume);
-        setIsMuted(vid.muted);
+        vid.muted = true;
 
         // Save to localStorage when volume changes
         localStorage.setItem('segra-volume', vid.volume.toString());
-        localStorage.setItem('segra-muted', vid.muted.toString());
       }
     };
 
@@ -534,12 +578,14 @@ export default function VideoComponent({ video }: { video: Content }) {
         const r = vid.playbackRate || 1;
         setPlaybackRate(r);
         localStorage.setItem('segra-playbackRate', r.toString());
+        syncNativePlaybackAudio(true);
       }
     };
 
     vid.addEventListener('loadedmetadata', onLoadedMetadata);
     vid.addEventListener('play', onPlay);
     vid.addEventListener('pause', onPause);
+    vid.addEventListener('seeked', onSeeked);
     vid.addEventListener('volumechange', onVolumeChange);
     vid.addEventListener('ratechange', onRateChange);
 
@@ -614,11 +660,13 @@ export default function VideoComponent({ video }: { video: Content }) {
       vid.removeEventListener('loadedmetadata', onLoadedMetadata);
       vid.removeEventListener('play', onPlay);
       vid.removeEventListener('pause', onPause);
+      vid.removeEventListener('seeked', onSeeked);
       vid.removeEventListener('volumechange', onVolumeChange);
       vid.removeEventListener('ratechange', onRateChange);
       window.removeEventListener('keydown', handleKeyDown, keyOptions as any);
+      syncNativePlaybackAudio(true, { playing: false });
     };
-  }, [volume, isMuted, isFullscreen, audioTracks.isMultiTrack]);
+  }, [volume, isMuted, isFullscreen, audioTracks.isMultiTrack, syncNativePlaybackAudio]);
 
   // Per-segment audio override state, kept in refs for the rAF loop below.
   // `segmentsDirtyRef` is separate from the id ref because `null` is already
@@ -682,6 +730,7 @@ export default function VideoComponent({ video }: { video: Content }) {
           }
         }
       }
+      syncNativePlaybackAudio(false);
 
       if (!vid.paused && !vid.ended) {
         rafId = requestAnimationFrame(tick);
@@ -701,7 +750,7 @@ export default function VideoComponent({ video }: { video: Content }) {
       vid.removeEventListener('pause', onPause);
       cancelAnimationFrame(rafId);
     };
-  }, []);
+  }, [syncNativePlaybackAudio]);
 
   // Update container width on window resize
   useEffect(() => {
@@ -948,18 +997,21 @@ export default function VideoComponent({ video }: { video: Content }) {
       }
     } else {
       el.volume = target;
+      el.muted = true;
       if (target === 0) {
-        el.muted = true;
         setIsMuted(true);
-      } else if (el.muted) {
-        el.muted = false;
+        nextMuted = true;
+      } else if (isMuted) {
         setIsMuted(false);
+        nextMuted = false;
+      } else {
+        nextMuted = false;
       }
-      nextMuted = el.muted;
     }
     setVolume(target);
     localStorage.setItem('segra-volume', target.toString());
     localStorage.setItem('segra-muted', nextMuted.toString());
+    syncNativePlaybackAudio(true, { muted: nextMuted });
   };
 
   // Pointer handlers for panning the video when zoomed
@@ -1003,21 +1055,48 @@ export default function VideoComponent({ video }: { video: Content }) {
     handlePlayPause();
   };
 
-  // Fullscreen controls: request browser fullscreen and ask backend for OS-level fullscreen
-  const enterFullscreen = () => {
+  // Fullscreen controls: use browser fullscreen for the player and native fullscreen for Photino.
+  const enterFullscreen = async () => {
     setIsFullscreen(true);
     sendMessageToBackend('ToggleFullscreen', { enabled: true });
+    try {
+      const player = playerContainerRef.current;
+      if (player && document.fullscreenElement !== player) {
+        await player.requestFullscreen();
+      }
+    } catch {
+      // Keep the CSS/native fullscreen fallback active when WebView declines the request.
+    }
   };
 
-  const exitFullscreen = () => {
+  const exitFullscreen = async () => {
     setIsFullscreen(false);
     sendMessageToBackend('ToggleFullscreen', { enabled: false });
+    try {
+      if (document.fullscreenElement) {
+        await document.exitFullscreen();
+      }
+    } catch {
+      // Native fullscreen has already been cleared above.
+    }
   };
 
   const toggleFullscreen = () => {
-    if (isFullscreen) exitFullscreen();
-    else enterFullscreen();
+    void (isFullscreen ? exitFullscreen() : enterFullscreen());
   };
+
+  useEffect(() => {
+    const handleFullscreenChange = () => {
+      const active = document.fullscreenElement === playerContainerRef.current;
+      if (active === isFullscreen) return;
+
+      setIsFullscreen(active);
+      sendMessageToBackend('ToggleFullscreen', { enabled: active });
+    };
+
+    document.addEventListener('fullscreenchange', handleFullscreenChange);
+    return () => document.removeEventListener('fullscreenchange', handleFullscreenChange);
+  }, [isFullscreen]);
 
   // Prevent page scrollbars while our overlay is active
   useEffect(() => {
@@ -1589,13 +1668,15 @@ export default function VideoComponent({ video }: { video: Content }) {
         audioTracks.setMasterMuted(newMuted);
         setIsMuted(newMuted);
         localStorage.setItem('segra-muted', newMuted.toString());
+        syncNativePlaybackAudio(true, { muted: newMuted });
         return;
       }
 
-      const newMutedState = !videoRef.current.muted;
-      videoRef.current.muted = newMutedState;
+      const newMutedState = !isMuted;
+      videoRef.current.muted = true;
       setIsMuted(newMutedState);
       localStorage.setItem('segra-muted', newMutedState.toString());
+      syncNativePlaybackAudio(true, { muted: newMutedState });
     }
   };
 

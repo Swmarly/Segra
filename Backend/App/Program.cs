@@ -8,6 +8,7 @@ using Segra.Backend.Core;
 using System.Diagnostics;
 using Segra.Backend.Shared;
 using Segra.Backend.Recorder;
+using Segra.Backend.Media;
 using Segra.Backend.Core.Models;
 using Segra.Backend.Windows.Input;
 using Segra.Backend.Windows.Power;
@@ -32,9 +33,43 @@ namespace Segra.Backend.App
         [DllImport("user32.dll")]
         static extern int GetSystemMetrics(int nIndex);
 
+        [DllImport("user32.dll", SetLastError = true)]
+        static extern int GetWindowLong(IntPtr hWnd, int nIndex);
+
+        [DllImport("user32.dll", SetLastError = true)]
+        static extern int SetWindowLong(IntPtr hWnd, int nIndex, int dwNewLong);
+
+        [DllImport("user32.dll", SetLastError = true)]
+        static extern bool GetWindowRect(IntPtr hWnd, out RECT lpRect);
+
+        [DllImport("user32.dll", SetLastError = true)]
+        static extern bool SetWindowPos(IntPtr hWnd, IntPtr hWndInsertAfter, int X, int Y, int cx, int cy, uint uFlags);
+
+        [DllImport("user32.dll")]
+        static extern IntPtr MonitorFromWindow(IntPtr hwnd, uint dwFlags);
+
+        [DllImport("user32.dll", SetLastError = true)]
+        static extern bool GetMonitorInfo(IntPtr hMonitor, ref MONITORINFO lpmi);
+
         const int SW_HIDE = 0;
         const int SM_CXFULLSCREEN = 16;
         const int SM_CYFULLSCREEN = 17;
+        const int GWL_STYLE = -16;
+        const int GWL_EXSTYLE = -20;
+        const int WS_OVERLAPPEDWINDOW = 0x00CF0000;
+        const int WS_CAPTION = 0x00C00000;
+        const int WS_THICKFRAME = 0x00040000;
+        const int WS_MINIMIZEBOX = 0x00020000;
+        const int WS_MAXIMIZEBOX = 0x00010000;
+        const int WS_SYSMENU = 0x00080000;
+        const int WS_EX_DLGMODALFRAME = 0x00000001;
+        const int WS_EX_CLIENTEDGE = 0x00000200;
+        const int WS_EX_STATICEDGE = 0x00020000;
+        const uint MONITOR_DEFAULTTONEAREST = 2;
+        const uint SWP_FRAMECHANGED = 0x0020;
+        const uint SWP_SHOWWINDOW = 0x0040;
+        static readonly IntPtr HWND_TOPMOST = new(-1);
+        static readonly IntPtr HWND_NOTOPMOST = new(-2);
         public static bool IsFirstRun { get; private set; } = false;
         private static readonly AutoResetEvent ShowWindowEvent = new(false);
         public static bool hasLoadedInitialSettings = false;
@@ -309,24 +344,116 @@ namespace Segra.Backend.App
         private static Size? _windowSizeBeforeFullscreen;
         private static Point? _windowLocationBeforeFullscreen;
         private static bool _wasMaximizedBeforeFullscreen;
+        private static bool _wasTopMostBeforeFullscreen;
+        private static int? _windowStyleBeforeFullscreen;
+        private static int? _windowExStyleBeforeFullscreen;
+        private static RECT? _windowRectBeforeFullscreen;
+
+        [StructLayout(LayoutKind.Sequential)]
+        struct RECT
+        {
+            public int Left;
+            public int Top;
+            public int Right;
+            public int Bottom;
+
+            public readonly int Width => Right - Left;
+            public readonly int Height => Bottom - Top;
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
+        struct MONITORINFO
+        {
+            public int cbSize;
+            public RECT rcMonitor;
+            public RECT rcWork;
+            public uint dwFlags;
+        }
 
         public static void SetFullscreen(bool enabled)
         {
             try
             {
                 if (Window == null) return;
+                IntPtr hWnd = Window.WindowHandle;
+                if (hWnd == IntPtr.Zero) return;
 
                 if (enabled)
                 {
                     _wasMaximizedBeforeFullscreen = Window.Maximized;
+                    _wasTopMostBeforeFullscreen = Window.Topmost;
                     _windowSizeBeforeFullscreen = Window.Size;
                     _windowLocationBeforeFullscreen = Window.Location;
-                    Window.SetMaximized(true);
+                    _windowStyleBeforeFullscreen = GetWindowLong(hWnd, GWL_STYLE);
+                    _windowExStyleBeforeFullscreen = GetWindowLong(hWnd, GWL_EXSTYLE);
+                    if (GetWindowRect(hWnd, out var rect))
+                    {
+                        _windowRectBeforeFullscreen = rect;
+                    }
+
+                    var monitorInfo = new MONITORINFO { cbSize = Marshal.SizeOf<MONITORINFO>() };
+                    IntPtr monitor = MonitorFromWindow(hWnd, MONITOR_DEFAULTTONEAREST);
+                    if (!GetMonitorInfo(monitor, ref monitorInfo))
+                    {
+                        monitorInfo.rcMonitor = new RECT
+                        {
+                            Left = 0,
+                            Top = 0,
+                            Right = GetSystemMetrics(SM_CXFULLSCREEN),
+                            Bottom = GetSystemMetrics(SM_CYFULLSCREEN)
+                        };
+                    }
+
+                    int style = _windowStyleBeforeFullscreen.Value
+                        & ~WS_OVERLAPPEDWINDOW
+                        & ~WS_CAPTION
+                        & ~WS_THICKFRAME
+                        & ~WS_MINIMIZEBOX
+                        & ~WS_MAXIMIZEBOX
+                        & ~WS_SYSMENU;
+                    int exStyle = _windowExStyleBeforeFullscreen.Value
+                        & ~WS_EX_DLGMODALFRAME
+                        & ~WS_EX_CLIENTEDGE
+                        & ~WS_EX_STATICEDGE;
+
+                    SetWindowLong(hWnd, GWL_STYLE, style);
+                    SetWindowLong(hWnd, GWL_EXSTYLE, exStyle);
+                    SetWindowPos(
+                        hWnd,
+                        HWND_TOPMOST,
+                        monitorInfo.rcMonitor.Left,
+                        monitorInfo.rcMonitor.Top,
+                        monitorInfo.rcMonitor.Width,
+                        monitorInfo.rcMonitor.Height,
+                        SWP_FRAMECHANGED | SWP_SHOWWINDOW);
                 }
                 else
                 {
+                    if (_windowStyleBeforeFullscreen.HasValue)
+                    {
+                        SetWindowLong(hWnd, GWL_STYLE, _windowStyleBeforeFullscreen.Value);
+                    }
+                    if (_windowExStyleBeforeFullscreen.HasValue)
+                    {
+                        SetWindowLong(hWnd, GWL_EXSTYLE, _windowExStyleBeforeFullscreen.Value);
+                    }
+
+                    if (_windowRectBeforeFullscreen.HasValue)
+                    {
+                        var rect = _windowRectBeforeFullscreen.Value;
+                        SetWindowPos(
+                            hWnd,
+                            _wasTopMostBeforeFullscreen ? HWND_TOPMOST : HWND_NOTOPMOST,
+                            rect.Left,
+                            rect.Top,
+                            rect.Width,
+                            rect.Height,
+                            SWP_FRAMECHANGED | SWP_SHOWWINDOW);
+                    }
+
                     if (_wasMaximizedBeforeFullscreen)
                     {
+                        Window.SetMaximized(true);
                         return;
                     }
                     else if (_windowSizeBeforeFullscreen.HasValue && _windowLocationBeforeFullscreen.HasValue)
@@ -351,6 +478,7 @@ namespace Segra.Backend.App
         private static void Shutdown()
         {
             Log.Information("Application shutting down.");
+            NativePlaybackAudioService.Stop();
 
             // Stop any active recording first so OBS finalizes the file cleanly. Task.Run + block keeps
             // the awaits off the tray thread, whose WinForms SynchronizationContext would otherwise deadlock.

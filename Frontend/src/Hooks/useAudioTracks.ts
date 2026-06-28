@@ -104,6 +104,8 @@ export function useAudioTracks(
 
   const audioCtxRef = useRef<AudioContext | null>(null);
   const masterGainRef = useRef<GainNode | null>(null);
+  const outputDestinationRef = useRef<MediaStreamAudioDestinationNode | null>(null);
+  const outputElementRef = useRef<HTMLAudioElement | null>(null);
   const trackDataRef = useRef<Map<number, AudioTrackData>>(new Map());
 
   const fetchUrlRef = useRef<string>('');
@@ -135,9 +137,18 @@ export function useAudioTracks(
 
     master.gain.setTargetAtTime(masterMutedRef.current ? 0 : masterVolumeRef.current, now, 0.005);
 
+    const vid = videoRef.current;
+    if (vid) {
+      vid.muted = true;
+    }
+
     for (const td of trackDataRef.current.values()) {
       let muted: boolean;
-      if (solo !== null) {
+      if (td.segraIndex === 0) {
+        // Track 0 is Segra's Full Mix. Let the native <video> element render it so
+        // app/window capture tools such as Discord can see a normal media stream.
+        muted = true;
+      } else if (solo !== null) {
         muted = td.segraIndex !== solo;
       } else {
         muted = effectiveMuted.has(td.segraIndex);
@@ -145,7 +156,7 @@ export function useAudioTracks(
       const vol = effectiveVolumes[td.segraIndex] ?? 1;
       td.gainNode.gain.setTargetAtTime(muted ? 0 : vol, now, 0.005);
     }
-  }, []);
+  }, [videoRef]);
 
   const stopAllSources = useCallback(() => {
     for (const td of trackDataRef.current.values()) {
@@ -402,7 +413,17 @@ export function useAudioTracks(
       audioCtxRef.current = ctx;
       const master = ctx.createGain();
       master.gain.value = 1;
-      master.connect(ctx.destination);
+      const outputDestination = ctx.createMediaStreamDestination();
+      master.connect(outputDestination);
+      outputDestinationRef.current = outputDestination;
+
+      const outputElement = document.createElement('audio');
+      outputElement.autoplay = true;
+      outputElement.controls = false;
+      outputElement.style.display = 'none';
+      outputElement.srcObject = outputDestination.stream;
+      document.body.appendChild(outputElement);
+      outputElementRef.current = outputElement;
       masterGainRef.current = master;
 
       const url = `http://localhost:2222/api/content?input=${encodeURIComponent(video.filePath)}`;
@@ -612,7 +633,9 @@ export function useAudioTracks(
 
       setTracks(displayTracks);
       setVolumes(initialVolumes);
-      setMutedTracks(new Set([0]));
+      setMutedTracks(
+        new Set(displayTracks.map((track) => track.index).filter((index) => index !== 0)),
+      );
       setSoloTrack(null);
 
       const vid = videoRef.current;
@@ -656,6 +679,28 @@ export function useAudioTracks(
       }
       masterGainRef.current = null;
 
+      const outputElement = outputElementRef.current;
+      if (outputElement) {
+        try {
+          outputElement.pause();
+          outputElement.srcObject = null;
+          outputElement.remove();
+        } catch {
+          // ignore
+        }
+      }
+      outputElementRef.current = null;
+
+      const outputDestination = outputDestinationRef.current;
+      if (outputDestination) {
+        try {
+          outputDestination.disconnect();
+        } catch {
+          // ignore
+        }
+      }
+      outputDestinationRef.current = null;
+
       const ctx = audioCtxRef.current;
       if (ctx) ctx.close().catch(() => {});
       audioCtxRef.current = null;
@@ -677,7 +722,7 @@ export function useAudioTracks(
     const vid = videoRef.current;
     if (!vid || !isMultiTrack) return;
 
-    vid.muted = true;
+    applyMuting();
 
     const onPlay = async () => {
       const ctx = audioCtxRef.current;
@@ -688,6 +733,11 @@ export function useAudioTracks(
         } catch {
           // ignore
         }
+      }
+      try {
+        await outputElementRef.current?.play();
+      } catch {
+        // ignore; the AudioContext path will retry on the next play gesture
       }
       resyncTo(vid.currentTime, vid.playbackRate);
     };
@@ -723,9 +773,9 @@ export function useAudioTracks(
       vid.removeEventListener('ratechange', onRateChange);
       vid.removeEventListener('timeupdate', onTimeUpdate);
       stopAllSources();
-      vid.muted = localStorage.getItem('segra-muted') === 'true';
+      vid.muted = true;
     };
-  }, [videoRef, isMultiTrack, resyncTo, stopAllSources, pumpDecoders]);
+  }, [videoRef, isMultiTrack, resyncTo, stopAllSources, pumpDecoders, applyMuting]);
 
   useEffect(() => {
     applyMuting();
