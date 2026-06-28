@@ -76,6 +76,11 @@ call dotnet publish "%ROOT%Segra.csproj" -c Release --self-contained -r win-x64 
 if errorlevel 1 goto :fail
 
 echo.
+echo === Clearing WebView frontend cache ===
+call :clear_webview_cache "%LocalAppData%\Photino\EBWebView\Default"
+call :clear_webview_cache "%LocalAppData%\EBWebView\Default"
+
+echo.
 echo === Build complete ===
 echo Output: "%PUBLISH_DIR%"
 echo Executable: "%PUBLISH_DIR%\Segra.exe"
@@ -84,6 +89,21 @@ echo === Starting Segra ===
 start "" "%PUBLISH_DIR%\Segra.exe"
 if errorlevel 1 goto :fail
 
+exit /b 0
+
+:clear_webview_cache
+set "WEBVIEW_PROFILE=%~1"
+if not exist "%WEBVIEW_PROFILE%" exit /b 0
+
+for %%D in (
+  "Cache"
+  "Code Cache"
+  "GPUCache"
+  "Service Worker"
+  "Session Storage"
+) do (
+  if exist "%WEBVIEW_PROFILE%\%%~D" rd /s /q "%WEBVIEW_PROFILE%\%%~D" >nul 2>nul
+)
 exit /b 0
 
 :refresh_path

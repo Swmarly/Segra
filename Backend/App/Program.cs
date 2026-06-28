@@ -211,7 +211,8 @@ namespace Segra.Backend.App
                         .RunAsync();
                 }
 
-                appUrl = IsDebugMode ? "http://localhost:2882" : $"{baseUrl}/index.html";
+                string appBuildStamp = File.GetLastWriteTimeUtc(typeof(Program).Assembly.Location).Ticks.ToString();
+                appUrl = IsDebugMode ? "http://localhost:2882" : $"{baseUrl}/index.html?v={appBuildStamp}";
 
                 if (IsDebugMode)
                 {
@@ -611,7 +612,7 @@ namespace Segra.Backend.App
 
             // Initialize the PhotinoWindow
             Window = new PhotinoWindow()
-                .SetBrowserControlInitParameters("--enable-blink-features=AudioVideoTracks")
+                .SetBrowserControlInitParameters("--enable-blink-features=AudioVideoTracks --disable-http-cache")
                 .SetNotificationsEnabled(false) // Disabled due to it creating a second start menu entry with incorrect start path. See https://github.com/tryphotino/photino.NET/issues/85
                 .SetUseOsDefaultSize(false)
                 .SetIconFile(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "icon.ico"))

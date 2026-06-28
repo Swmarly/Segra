@@ -138,6 +138,22 @@ export default function PreferencesSection({ settings, updateSettings }: Prefere
         <label className="flex items-center gap-2">
           <input
             type="checkbox"
+            name="discardSessionAfterHighlights"
+            checked={settings.discardSessionAfterHighlights}
+            onChange={(e) => updateSettings({ discardSessionAfterHighlights: e.target.checked })}
+            className="checkbox checkbox-primary checkbox-sm"
+            disabled={!settings.enableAi || !settings.autoGenerateHighlights}
+          />
+          <span className="cursor-pointer">
+            Discard Full Session After Highlights Are Generated
+          </span>
+        </label>
+      </div>
+
+      <div className="flex items-center">
+        <label className="flex items-center gap-2">
+          <input
+            type="checkbox"
             name="showNewBadgeOnVideos"
             checked={settings.showNewBadgeOnVideos}
             onChange={(e) => updateSettings({ showNewBadgeOnVideos: e.target.checked })}
