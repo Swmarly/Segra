@@ -8,16 +8,16 @@ namespace Segra.Backend.Games.ApexLegends
         {
             LogPrefix = "Apex",
 
-            // Initial guess covering Apex's central/lower notification area.
+            // Covers Apex's central/lower notification area plus the full champion banner.
             // CropRegion coordinates are normalized percentages of the captured game frame.
             // If events are missed, tune Y/Height to move or resize the crop before changing keywords.
             // Works best when Apex Legends' UI language is set to English.
             // OCR can produce false positives, so EventCooldown limits repeated bookmarks.
             CropRegion = new CropRegion(
                 X: 0.15,
-                Y: 0.35,
+                Y: 0.28,
                 Width: 0.70,
-                Height: 0.45
+                Height: 0.52
             ),
 
             Threshold = 145,
@@ -47,6 +47,11 @@ namespace Segra.Backend.Games.ApexLegends
                 new()
                 {
                     Text = "YOU ARE THE CHAMPION",
+                    BookmarkType = BookmarkType.Goal
+                },
+                new()
+                {
+                    Text = "CHAMPION",
                     BookmarkType = BookmarkType.Goal
                 }
             ]
