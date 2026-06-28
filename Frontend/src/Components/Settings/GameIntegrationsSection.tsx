@@ -8,7 +8,7 @@ interface GameIntegration {
   name: string;
   settingsKey: keyof GameIntegrations;
   bookmarks: string[];
-  backgroundImage: string;
+  backgroundImage?: string;
   coverOpacity?: number;
   isBeta?: boolean;
   warningText?: string;
@@ -35,6 +35,14 @@ const GAME_INTEGRATIONS: GameIntegration[] = [
     settingsKey: 'pubg',
     bookmarks: ['Kills', 'Knocks', 'Deaths'],
     backgroundImage: 'https://segra.tv/api/games/cover/sc87ll',
+  },
+  {
+    id: 'apex-legends',
+    name: 'Apex Legends',
+    settingsKey: 'apexLegends',
+    bookmarks: ['Knocks', 'Eliminations', 'Assists', 'Champion'],
+    isBeta: true,
+    warningText: 'OCR based. Works best with English UI and may need crop/threshold tuning.',
   },
   {
     id: 'rocket-league',
@@ -120,7 +128,7 @@ function GameIntegrationCard({
   return (
     <div className="relative bg-base-200 p-4 rounded-lg border border-custom overflow-hidden">
       {/* Background image */}
-      {showBackground && (
+      {showBackground && integration.backgroundImage && (
         <div
           className="absolute inset-0 bg-cover bg-center pointer-events-none"
           style={{

@@ -1,4 +1,5 @@
 using Serilog;
+using Segra.Backend.Games.ApexLegends;
 using Segra.Backend.Games.Pubg;
 using Segra.Backend.Games.Rust;
 using Segra.Backend.Core.Models;
@@ -45,6 +46,7 @@ namespace Segra.Backend.Games
                 }
 
                 var integrations = Settings.Instance.GameIntegrations;
+                integrations.EnsureDefaults();
 
                 if ((igdbId == PUBG_IGDB_ID || gameName?.Contains("PUBG:", StringComparison.OrdinalIgnoreCase) == true || gameName?.Contains("PLAYERUNKNOWN'S BATTLEGROUNDS", StringComparison.OrdinalIgnoreCase) == true) && integrations.Pubg.Enabled)
                     _gameIntegration = new PubgIntegration();
@@ -52,6 +54,12 @@ namespace Segra.Backend.Games
                     _gameIntegration = new LeagueOfLegendsIntegration();
                 else if ((igdbId == CS2_IGDB_ID || gameName?.Equals("Counter-Strike 2", StringComparison.OrdinalIgnoreCase) == true) && integrations.CounterStrike2.Enabled)
                     _gameIntegration = new CounterStrike2Integration();
+                else if ((gameName?.Equals("Apex Legends", StringComparison.OrdinalIgnoreCase) == true
+                          || gameName?.Contains("Apex Legends", StringComparison.OrdinalIgnoreCase) == true
+                          || Path.GetFileName(exePath)?.Equals("r5apex.exe", StringComparison.OrdinalIgnoreCase) == true
+                          || Path.GetFileName(exePath)?.Equals("r5apex_dx12.exe", StringComparison.OrdinalIgnoreCase) == true)
+                         && integrations.ApexLegends.Enabled)
+                    _gameIntegration = new ApexLegendsIntegration();
                 else if ((igdbId == ROCKET_LEAGUE_IGDB_ID || gameName?.Equals("Rocket League", StringComparison.OrdinalIgnoreCase) == true) && integrations.RocketLeague.Enabled)
                     _gameIntegration = new RocketLeagueIntegration();
                 else if ((igdbId == DOTA2_IGDB_ID || gameName?.Equals("Dota 2", StringComparison.OrdinalIgnoreCase) == true) && integrations.Dota2.Enabled)

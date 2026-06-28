@@ -31,13 +31,68 @@ interface SettingsProviderProps {
   children: ReactNode;
 }
 
+const mergeSettingsWithDefaults = (value: Partial<Settings>): Settings => {
+  const gameIntegrations = value.gameIntegrations ?? initialSettings.gameIntegrations;
+
+  return {
+    ...initialSettings,
+    ...value,
+    gameIntegrations: {
+      counterStrike2: {
+        ...initialSettings.gameIntegrations.counterStrike2,
+        ...gameIntegrations.counterStrike2,
+      },
+      leagueOfLegends: {
+        ...initialSettings.gameIntegrations.leagueOfLegends,
+        ...gameIntegrations.leagueOfLegends,
+      },
+      pubg: {
+        ...initialSettings.gameIntegrations.pubg,
+        ...gameIntegrations.pubg,
+      },
+      apexLegends: {
+        ...initialSettings.gameIntegrations.apexLegends,
+        ...gameIntegrations.apexLegends,
+      },
+      rocketLeague: {
+        ...initialSettings.gameIntegrations.rocketLeague,
+        ...gameIntegrations.rocketLeague,
+      },
+      dota2: {
+        ...initialSettings.gameIntegrations.dota2,
+        ...gameIntegrations.dota2,
+      },
+      rust: {
+        ...initialSettings.gameIntegrations.rust,
+        ...gameIntegrations.rust,
+      },
+      minecraft: {
+        ...initialSettings.gameIntegrations.minecraft,
+        ...gameIntegrations.minecraft,
+      },
+      runescapeDragonwilds: {
+        ...initialSettings.gameIntegrations.runescapeDragonwilds,
+        ...gameIntegrations.runescapeDragonwilds,
+      },
+      warThunder: {
+        ...initialSettings.gameIntegrations.warThunder,
+        ...gameIntegrations.warThunder,
+      },
+      gta: {
+        ...initialSettings.gameIntegrations.gta,
+        ...gameIntegrations.gta,
+      },
+    },
+  };
+};
+
 export function SettingsProvider({ children }: SettingsProviderProps) {
   const loadCachedSettings = (): Settings | null => {
     try {
       const raw = localStorage.getItem(SETTINGS_STORAGE_KEY);
       if (!raw) return null;
-      const cached = JSON.parse(raw);
-      return { ...initialSettings, ...cached };
+      const cached = JSON.parse(raw) as Partial<Settings>;
+      return mergeSettingsWithDefaults(cached);
     } catch {
       return null;
     }
@@ -59,7 +114,7 @@ export function SettingsProvider({ children }: SettingsProviderProps) {
   const updateSettings = useCallback<SettingsUpdateContextType>(
     (newSettings, fromBackend = false) => {
       setSettings((prev) => {
-        const updatedSettings: Settings = { ...prev, ...newSettings };
+        const updatedSettings = mergeSettingsWithDefaults({ ...prev, ...newSettings });
         saveCachedSettings(updatedSettings);
         if (!fromBackend) {
           pendingBackendUpdateRef.current = updatedSettings;
