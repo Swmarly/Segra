@@ -187,6 +187,7 @@ export interface GameIntegrations {
   counterStrike2: GameIntegrationSettings;
   leagueOfLegends: GameIntegrationSettings;
   pubg: GameIntegrationSettings;
+  apexLegends: GameIntegrationSettings;
   rocketLeague: GameIntegrationSettings;
   dota2: GameIntegrationSettings;
   rust: GameIntegrationSettings;
@@ -411,6 +412,7 @@ export const initialSettings: Settings = {
     counterStrike2: { enabled: true },
     leagueOfLegends: { enabled: true },
     pubg: { enabled: true },
+    apexLegends: { enabled: true },
     rocketLeague: { enabled: false },
     dota2: { enabled: true },
     rust: { enabled: true },

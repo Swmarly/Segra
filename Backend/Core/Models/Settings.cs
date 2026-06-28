@@ -420,6 +420,7 @@ namespace Segra.Backend.Core.Models
             set
             {
                 _gameIntegrations = value ?? new GameIntegrations();
+                _gameIntegrations.EnsureDefaults();
             }
         }
 
@@ -1392,6 +1393,9 @@ namespace Segra.Backend.Core.Models
         [JsonPropertyName("pubg")]
         public GameIntegrationSettings Pubg { get; set; } = new GameIntegrationSettings(true);
 
+        [JsonPropertyName("apexLegends")]
+        public GameIntegrationSettings ApexLegends { get; set; } = new GameIntegrationSettings(true);
+
         [JsonPropertyName("rocketLeague")]
         public GameIntegrationSettings RocketLeague { get; set; } = new GameIntegrationSettings(true);
 
@@ -1412,5 +1416,20 @@ namespace Segra.Backend.Core.Models
 
         [JsonPropertyName("gta")]
         public GameIntegrationSettings Gta { get; set; } = new GameIntegrationSettings(true);
+
+        public void EnsureDefaults()
+        {
+            CounterStrike2 ??= new GameIntegrationSettings(true);
+            LeagueOfLegends ??= new GameIntegrationSettings(true);
+            Pubg ??= new GameIntegrationSettings(true);
+            ApexLegends ??= new GameIntegrationSettings(true);
+            RocketLeague ??= new GameIntegrationSettings(true);
+            Dota2 ??= new GameIntegrationSettings(true);
+            Rust ??= new GameIntegrationSettings(true);
+            Minecraft ??= new GameIntegrationSettings(true);
+            RunescapeDragonwilds ??= new GameIntegrationSettings(true);
+            WarThunder ??= new GameIntegrationSettings(true);
+            Gta ??= new GameIntegrationSettings(true);
+        }
     }
 }

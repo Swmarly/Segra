@@ -367,6 +367,8 @@ namespace Segra.Backend.Core
             {
                 var current = settings.GameIntegrations;
                 var updated = updatedSettings.GameIntegrations;
+                current.EnsureDefaults();
+                updated.EnsureDefaults();
 
                 if (current.CounterStrike2.Enabled != updated.CounterStrike2.Enabled)
                 {
@@ -384,6 +386,12 @@ namespace Segra.Backend.Core
                 {
                     Log.Information($"GameIntegrations.Pubg.Enabled changed from '{current.Pubg.Enabled}' to '{updated.Pubg.Enabled}'");
                     current.Pubg.Enabled = updated.Pubg.Enabled;
+                    hasChanges = true;
+                }
+                if (current.ApexLegends.Enabled != updated.ApexLegends.Enabled)
+                {
+                    Log.Information($"GameIntegrations.ApexLegends.Enabled changed from '{current.ApexLegends.Enabled}' to '{updated.ApexLegends.Enabled}'");
+                    current.ApexLegends.Enabled = updated.ApexLegends.Enabled;
                     hasChanges = true;
                 }
                 if (current.RocketLeague.Enabled != updated.RocketLeague.Enabled)
