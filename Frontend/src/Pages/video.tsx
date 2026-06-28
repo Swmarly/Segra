@@ -431,7 +431,13 @@ export default function VideoComponent({ video }: { video: Content }) {
   const syncNativePlaybackAudio = useCallback(
     (
       force = false,
-      overrides?: Partial<{ playing: boolean; time: number; muted: boolean; forceSeek: boolean }>,
+      overrides?: Partial<{
+        playing: boolean;
+        time: number;
+        volume: number;
+        muted: boolean;
+        forceSeek: boolean;
+      }>,
     ) => {
       const vid = videoRef.current;
       if (!vid) return;
@@ -450,7 +456,7 @@ export default function VideoComponent({ video }: { video: Content }) {
         FilePath: state.filePath,
         Time: overrides?.time ?? vid.currentTime,
         Playing: playing,
-        Volume: state.volume,
+        Volume: overrides?.volume ?? state.volume,
         Muted: overrides?.muted ?? state.isMuted,
         PlaybackRate: vid.playbackRate || state.playbackRate || 1,
         ForceSeek: overrides?.forceSeek ?? false,
@@ -575,8 +581,7 @@ export default function VideoComponent({ video }: { video: Content }) {
     if (!vid) return;
 
     // WebView2 owns media-element audio sessions, so keep the visual video element silent.
-    // Preview audio is rendered by the native Segra process via SyncNativePlaybackAudio.
-    vid.volume = volume;
+    // Player volume is applied through Segra's native/audio-context paths, not the media element.
     vid.muted = true;
     // Apply saved playback rate
     vid.playbackRate = playbackRate;
@@ -605,16 +610,6 @@ export default function VideoComponent({ video }: { video: Content }) {
     const onSeeked = () => {
       syncNativePlaybackAudio(true, { forceSeek: true });
     };
-    const onVolumeChange = () => {
-      if (vid) {
-        setVolume(vid.volume);
-        vid.muted = true;
-
-        // Save to localStorage when volume changes
-        localStorage.setItem('segra-volume', vid.volume.toString());
-      }
-    };
-
     const onRateChange = () => {
       if (vid) {
         const r = vid.playbackRate || 1;
@@ -628,7 +623,6 @@ export default function VideoComponent({ video }: { video: Content }) {
     vid.addEventListener('play', onPlay);
     vid.addEventListener('pause', onPause);
     vid.addEventListener('seeked', onSeeked);
-    vid.addEventListener('volumechange', onVolumeChange);
     vid.addEventListener('ratechange', onRateChange);
 
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -671,13 +665,13 @@ export default function VideoComponent({ video }: { video: Content }) {
       // Volume up/down (5% steps, allow holding)
       if ((e.key === 'ArrowUp' || e.code === 'ArrowUp') && !isTyping) {
         e.preventDefault();
-        setPlayerVolume((videoRef.current?.volume ?? volume) + 0.05);
+        setPlayerVolume(volume + 0.05);
         showControlsTemporarily();
         return;
       }
       if ((e.key === 'ArrowDown' || e.code === 'ArrowDown') && !isTyping) {
         e.preventDefault();
-        setPlayerVolume((videoRef.current?.volume ?? volume) - 0.05);
+        setPlayerVolume(volume - 0.05);
         showControlsTemporarily();
         return;
       }
@@ -703,7 +697,6 @@ export default function VideoComponent({ video }: { video: Content }) {
       vid.removeEventListener('play', onPlay);
       vid.removeEventListener('pause', onPause);
       vid.removeEventListener('seeked', onSeeked);
-      vid.removeEventListener('volumechange', onVolumeChange);
       vid.removeEventListener('ratechange', onRateChange);
       window.removeEventListener('keydown', handleKeyDown, keyOptions as any);
     };
@@ -1037,7 +1030,6 @@ export default function VideoComponent({ video }: { video: Content }) {
         nextMuted = false;
       }
     } else {
-      el.volume = target;
       el.muted = true;
       if (target === 0) {
         setIsMuted(true);
@@ -1052,7 +1044,7 @@ export default function VideoComponent({ video }: { video: Content }) {
     setVolume(target);
     localStorage.setItem('segra-volume', target.toString());
     localStorage.setItem('segra-muted', nextMuted.toString());
-    syncNativePlaybackAudio(true, { muted: nextMuted });
+    syncNativePlaybackAudio(true, { volume: target, muted: nextMuted });
   };
 
   // Pointer handlers for panning the video when zoomed

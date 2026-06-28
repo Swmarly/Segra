@@ -1,5 +1,6 @@
 using NAudio.Wave;
 using NAudio.CoreAudioApi;
+using NAudio.Wave.SampleProviders;
 using Serilog;
 
 namespace Segra.Backend.Media
@@ -9,6 +10,7 @@ namespace Segra.Backend.Media
         private static readonly object Lock = new();
         private static MediaFoundationReader? _reader;
         private static IWavePlayer? _output;
+        private static VolumeSampleProvider? _volumeProvider;
         private static string? _currentPath;
         private static double _lastRequestedTime;
         private static DateTime _lastCorrectionUtc = DateTime.MinValue;
@@ -39,15 +41,19 @@ namespace Segra.Backend.Media
                     {
                         StopLocked();
                         _reader = new MediaFoundationReader(filePath);
+                        _volumeProvider = new VolumeSampleProvider(_reader.ToSampleProvider());
                         _output = new WasapiOut(AudioClientShareMode.Shared, true, OutputLatencyMs);
-                        _output.Init(_reader);
+                        _output.Init(_volumeProvider.ToWaveProvider());
                         _currentPath = filePath;
                         forceSeek = true;
                     }
 
                     if (_reader == null || _output == null) return;
 
-                    _output.Volume = muted ? 0 : Math.Clamp(volume, 0, 1);
+                    if (_volumeProvider != null)
+                    {
+                        _volumeProvider.Volume = muted ? 0 : Math.Clamp(volume, 0, 1);
+                    }
 
                     // NAudio's MediaFoundationReader path does not provide clean realtime varispeed for MP4.
                     // Keep the native process audio path correct at normal speed and prevent drift/noise at
@@ -135,6 +141,7 @@ namespace Segra.Backend.Media
             _output?.Dispose();
             _reader?.Dispose();
             _output = null;
+            _volumeProvider = null;
             _reader = null;
             _currentPath = null;
             _lastRequestedTime = 0;
