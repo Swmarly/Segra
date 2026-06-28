@@ -150,9 +150,7 @@ tasklist /fi "imagename eq Segra.exe" 2>nul | find /i "Segra.exe" >nul
 if errorlevel 1 exit /b 0
 
 echo.
-echo Segra.exe is currently running and may lock files in the publish folder.
-choice /m "Close Segra.exe now"
-if errorlevel 2 exit /b 1
+echo Closing running Segra.exe before build.
 
 taskkill /im Segra.exe /f >nul
 if errorlevel 1 (

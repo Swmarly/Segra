@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
-import { FileText, RefreshCw, Plane } from 'lucide-react';
+import { FileText, Plane } from 'lucide-react';
 import { GithubIcon } from '../icons/BrandIcons';
 import DropdownSelect from '../DropdownSelect';
 import { Settings as SettingsType } from '../../Models/types';
@@ -12,14 +12,12 @@ interface AdvancedSectionProps {
   settings: SettingsType;
   updateSettings: (updates: Partial<SettingsType>) => void;
   openReleaseNotesModal: (version: string | null) => void;
-  checkForUpdates: () => void;
 }
 
 export default function AdvancedSection({
   settings,
   updateSettings,
   openReleaseNotesModal,
-  checkForUpdates,
 }: AdvancedSectionProps) {
   const appState = useAppState();
   const rowRef = useRef<HTMLDivElement>(null);
@@ -46,36 +44,6 @@ export default function AdvancedSection({
     <>
       <div className="bg-base-300 p-4 rounded-lg space-y-4 border border-custom">
         <div className="flex flex-col gap-3">
-          <div className="flex items-center justify-between">
-            <div className="flex flex-col">
-              <div className="mb-1">
-                <span className="text-base-content">Update Channel</span>
-              </div>
-              <div className="flex items-center gap-3">
-                <div className="w-40">
-                  <DropdownSelect
-                    size="sm"
-                    items={[
-                      { value: 'stable', label: 'Stable' },
-                      { value: 'beta', label: 'Beta' },
-                    ]}
-                    value={settings.receiveBetaUpdates ? 'beta' : 'stable'}
-                    onChange={(val) => updateSettings({ receiveBetaUpdates: val === 'beta' })}
-                  />
-                </div>
-                <Button
-                  variant="primary"
-                  size="sm"
-                  className="gap-2 bg-base-200 hover:bg-base-300"
-                  onClick={() => checkForUpdates()}
-                  loading={appState.isCheckingForUpdates}
-                >
-                  {!appState.isCheckingForUpdates && <RefreshCw size={16} className="shrink-0" />}
-                  <span className="inline-block">Check for Updates</span>
-                </Button>
-              </div>
-            </div>
-          </div>
           <div className="flex items-center">
             <Button
               variant="primary"

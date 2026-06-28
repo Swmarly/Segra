@@ -6,8 +6,8 @@
       "_rolldown-runtime.Cyuzqnbw.js"
     ]
   },
-  "_lucide.DuwqxdVV.js": {
-    "file": "assets/lucide.DuwqxdVV.js",
+  "_lucide.kXLnePbn.js": {
+    "file": "assets/lucide.kXLnePbn.js",
     "name": "lucide",
     "imports": [
       "_rolldown-runtime.Cyuzqnbw.js",
@@ -56,13 +56,13 @@
     ]
   },
   "index.html": {
-    "file": "assets/index.FRuxXvf3.js",
+    "file": "assets/index.DGXc7nxE.js",
     "name": "index",
     "src": "index.html",
     "isEntry": true,
     "imports": [
       "_rolldown-runtime.Cyuzqnbw.js",
-      "_lucide.DuwqxdVV.js",
+      "_lucide.kXLnePbn.js",
       "_react-dnd.ByP--IaT.js",
       "_tanstack.Cdtw3RqG.js",
       "_framer-motion.DEq2Je_Y.js",
