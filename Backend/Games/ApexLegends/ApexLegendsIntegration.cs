@@ -36,7 +36,8 @@ namespace Segra.Backend.Games.ApexLegends
                 new()
                 {
                     Text = "ELIMINATED",
-                    BookmarkType = BookmarkType.Kill
+                    BookmarkType = BookmarkType.Kill,
+                    ExcludeFragments = ["ENEMY SQUAD"]
                 },
                 new()
                 {
