@@ -38,9 +38,15 @@ namespace Segra.Backend.Games
             public TimeSpan EventCooldown { get; init; } = TimeSpan.FromSeconds(5);
             public TimeSpan ExcludeCheckWindow { get; init; } = TimeSpan.FromSeconds(1.5);
             public TimeSpan TimeCompensation { get; init; } = TimeSpan.FromSeconds(1);
+            public IReadOnlyList<OcrExclusion> ActiveExclusions { get; init; } = [];
         }
 
         protected record CropRegion(double X, double Y, double Width, double Height);
+
+        protected record OcrExclusion(
+            CropRegion CropRegion,
+            IReadOnlyList<string> Fragments,
+            IReadOnlyList<BookmarkType> AllowedBookmarkTypes);
 
         protected record OcrKeyword
         {
@@ -122,6 +128,8 @@ namespace Segra.Backend.Games
                         continue;
                     }
 
+                    var activeExclusions = await DetectActiveExclusions(source, srcW, srcH).ConfigureAwait(false);
+
                     foreach (var crop in EnumerateCropRegions())
                     {
                         var cropX = (uint)(srcW * crop.X);
@@ -133,7 +141,11 @@ namespace Segra.Backend.Games
                         if (screenshot == null)
                             continue;
 
-                        await ProcessScreenshot(screenshot.Pixels, screenshot.Width, screenshot.Height).ConfigureAwait(false);
+                        await ProcessScreenshot(
+                            screenshot.Pixels,
+                            screenshot.Width,
+                            screenshot.Height,
+                            activeExclusions).ConfigureAwait(false);
                     }
                 }
                 catch (OperationCanceledException)
@@ -157,7 +169,99 @@ namespace Segra.Backend.Games
                 yield return cropRegion;
         }
 
-        private async Task ProcessScreenshot(byte[] pixels, uint width, uint height)
+        private async Task<IReadOnlyList<OcrExclusion>> DetectActiveExclusions(
+            ObsKit.NET.Sources.GameCapture source,
+            uint srcW,
+            uint srcH)
+        {
+            if (_config.ActiveExclusions.Count == 0)
+                return [];
+
+            var activeExclusions = new List<OcrExclusion>();
+
+            foreach (var exclusion in _config.ActiveExclusions)
+            {
+                var crop = exclusion.CropRegion;
+                var cropX = (uint)(srcW * crop.X);
+                var cropY = (uint)(srcH * crop.Y);
+                var cropW = (uint)(srcW * crop.Width);
+                var cropH = (uint)(srcH * crop.Height);
+
+                var screenshot = source.TakeScreenshot(cropX, cropY, cropW, cropH);
+                if (screenshot == null)
+                    continue;
+
+                var text = await RecognizeText(screenshot.Pixels, screenshot.Width, screenshot.Height).ConfigureAwait(false);
+                if (string.IsNullOrWhiteSpace(text))
+                    continue;
+
+                if (exclusion.Fragments.Any(fragment => FuzzyContains(text, fragment)))
+                {
+                    activeExclusions.Add(exclusion);
+                    Log.Debug($"[{_config.LogPrefix}] Active OCR exclusion detected: {text}");
+                }
+            }
+
+            return activeExclusions;
+        }
+
+        private async Task ProcessScreenshot(
+            byte[] pixels,
+            uint width,
+            uint height,
+            IReadOnlyList<OcrExclusion> activeExclusions)
+        {
+            var text = await RecognizeText(pixels, width, height).ConfigureAwait(false);
+
+            // Process pending events even when OCR text is empty
+            ProcessPendingEvents(text, activeExclusions);
+
+            if (string.IsNullOrWhiteSpace(text))
+                return;
+
+            Log.Debug($"[{_config.LogPrefix}] OCR text: {text}");
+
+            foreach (var keyword in _config.Keywords)
+            {
+                if (!FuzzyContains(text, keyword.Text))
+                    continue;
+
+                var now = DateTime.UtcNow;
+                if (now - _lastEventTime[keyword.BookmarkType] < _config.EventCooldown)
+                    break;
+
+                if (IsBlockedByActiveExclusions(keyword.BookmarkType, activeExclusions))
+                {
+                    Log.Debug($"[{_config.LogPrefix}] Ignored '{keyword.Text}' detection — active OCR exclusion");
+                    break;
+                }
+
+                if (keyword.ExcludeFragments.Count > 0)
+                {
+                    // If exclude fragment already visible on this frame, skip entirely
+                    if (keyword.ExcludeFragments.Any(f => text.Contains(f, StringComparison.OrdinalIgnoreCase)))
+                        break;
+
+                    // Defer: wait for ExcludeCheckWindow before confirming
+                    if (!_pendingEvents.ContainsKey(keyword.BookmarkType))
+                    {
+                        _pendingEvents[keyword.BookmarkType] = new PendingEvent(
+                            keyword.Text, keyword.ExcludeFragments, now, DateTime.Now);
+                        Log.Debug($"[{_config.LogPrefix}] Pending '{keyword.Text}' detection, waiting for confirmation");
+                    }
+                }
+                else
+                {
+                    // No exclude fragments — confirm immediately
+                    _lastEventTime[keyword.BookmarkType] = now;
+                    AddBookmark(keyword.BookmarkType);
+                    Log.Information($"[{_config.LogPrefix}] Detected '{keyword.Text}' in OCR text -> {keyword.BookmarkType}");
+                }
+                break;
+            }
+        }
+
+        private async Task<string> RecognizeText(byte[] pixels, uint width, uint height)
         {
             int w = (int)width;
             int h = (int)height;
@@ -201,53 +305,12 @@ namespace Segra.Backend.Games
             // Convert Bitmap to SoftwareBitmap for Windows OCR
             var softwareBitmap = await BitmapToSoftwareBitmap(bitmap).ConfigureAwait(false);
             if (softwareBitmap == null)
-                return;
+                return "";
 
             using (softwareBitmap)
             {
                 var result = await _ocrEngine.RecognizeAsync(softwareBitmap);
-                var text = result.Text;
-
-                // Process pending events even when OCR text is empty
-                ProcessPendingEvents(text ?? "");
-
-                if (string.IsNullOrWhiteSpace(text))
-                    return;
-
-                Log.Debug($"[{_config.LogPrefix}] OCR text: {text}");
-
-                foreach (var keyword in _config.Keywords)
-                {
-                    if (!FuzzyContains(text, keyword.Text))
-                        continue;
-
-                    var now = DateTime.UtcNow;
-                    if (now - _lastEventTime[keyword.BookmarkType] < _config.EventCooldown)
-                        break;
-
-                    if (keyword.ExcludeFragments.Count > 0)
-                    {
-                        // If exclude fragment already visible on this frame, skip entirely
-                        if (keyword.ExcludeFragments.Any(f => text.Contains(f, StringComparison.OrdinalIgnoreCase)))
-                            break;
-
-                        // Defer: wait for ExcludeCheckWindow before confirming
-                        if (!_pendingEvents.ContainsKey(keyword.BookmarkType))
-                        {
-                            _pendingEvents[keyword.BookmarkType] = new PendingEvent(
-                                keyword.Text, keyword.ExcludeFragments, now, DateTime.Now);
-                            Log.Debug($"[{_config.LogPrefix}] Pending '{keyword.Text}' detection, waiting for confirmation");
-                        }
-                    }
-                    else
-                    {
-                        // No exclude fragments — confirm immediately
-                        _lastEventTime[keyword.BookmarkType] = now;
-                        AddBookmark(keyword.BookmarkType);
-                        Log.Information($"[{_config.LogPrefix}] Detected '{keyword.Text}' in OCR text -> {keyword.BookmarkType}");
-                    }
-                    break;
-                }
+                return result.Text ?? "";
             }
         }
 
@@ -352,13 +415,27 @@ namespace Segra.Backend.Games
             return prev[m];
         }
 
-        private void ProcessPendingEvents(string ocrText)
+        private static bool IsBlockedByActiveExclusions(
+            BookmarkType bookmarkType,
+            IReadOnlyList<OcrExclusion> activeExclusions)
+        {
+            return activeExclusions.Any(exclusion => !exclusion.AllowedBookmarkTypes.Contains(bookmarkType));
+        }
+
+        private void ProcessPendingEvents(string ocrText, IReadOnlyList<OcrExclusion> activeExclusions)
         {
             var now = DateTime.UtcNow;
             var toRemove = new List<BookmarkType>();
 
             foreach (var (bookmarkType, pending) in _pendingEvents)
             {
+                if (IsBlockedByActiveExclusions(bookmarkType, activeExclusions))
+                {
+                    Log.Debug($"[{_config.LogPrefix}] Cancelled pending '{pending.Keyword}' — active OCR exclusion");
+                    toRemove.Add(bookmarkType);
+                    continue;
+                }
+
                 // Cancel if an exclude fragment appeared on a subsequent frame
                 if (ocrText.Length > 0 &&
                     pending.ExcludeFragments.Any(f => ocrText.Contains(f, StringComparison.OrdinalIgnoreCase)))

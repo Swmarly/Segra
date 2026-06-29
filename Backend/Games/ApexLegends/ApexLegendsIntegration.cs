@@ -37,6 +37,22 @@ namespace Segra.Backend.Games.ApexLegends
             ExcludeCheckWindow = TimeSpan.FromSeconds(1.0),
             TimeCompensation = TimeSpan.FromSeconds(0.8),
 
+            ActiveExclusions =
+            [
+                // Spectating/death top HUD. Suppress combat events from the observed player,
+                // but keep champion detections live so match wins are still bookmarked.
+                new OcrExclusion(
+                    new CropRegion(
+                        X: 0.35,
+                        Y: 0.02,
+                        Width: 0.45,
+                        Height: 0.13
+                    ),
+                    ["SPECTATE", "AWAITING RECOVERY"],
+                    [BookmarkType.Goal]
+                )
+            ],
+
             Keywords =
             [
                 new()
