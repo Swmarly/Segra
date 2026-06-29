@@ -31,6 +31,7 @@ namespace Segra.Backend.Games
         {
             public required string LogPrefix { get; init; }
             public required CropRegion CropRegion { get; init; }
+            public IReadOnlyList<CropRegion> AdditionalCropRegions { get; init; } = [];
             public required IReadOnlyList<OcrKeyword> Keywords { get; init; }
             public int Threshold { get; init; } = 150;
             public int PollIntervalMs { get; init; } = 250;
@@ -121,20 +122,19 @@ namespace Segra.Backend.Games
                         continue;
                     }
 
-                    var crop = _config.CropRegion;
-                    var cropX = (uint)(srcW * crop.X);
-                    var cropY = (uint)(srcH * crop.Y);
-                    var cropW = (uint)(srcW * crop.Width);
-                    var cropH = (uint)(srcH * crop.Height);
-
-                    var screenshot = source.TakeScreenshot(cropX, cropY, cropW, cropH);
-                    if (screenshot == null)
+                    foreach (var crop in EnumerateCropRegions())
                     {
-                        await Task.Delay(_config.PollIntervalMs, token).ConfigureAwait(false);
-                        continue;
-                    }
+                        var cropX = (uint)(srcW * crop.X);
+                        var cropY = (uint)(srcH * crop.Y);
+                        var cropW = (uint)(srcW * crop.Width);
+                        var cropH = (uint)(srcH * crop.Height);
 
-                    await ProcessScreenshot(screenshot.Pixels, screenshot.Width, screenshot.Height).ConfigureAwait(false);
+                        var screenshot = source.TakeScreenshot(cropX, cropY, cropW, cropH);
+                        if (screenshot == null)
+                            continue;
+
+                        await ProcessScreenshot(screenshot.Pixels, screenshot.Width, screenshot.Height).ConfigureAwait(false);
+                    }
                 }
                 catch (OperationCanceledException)
                 {
@@ -147,6 +147,14 @@ namespace Segra.Backend.Games
 
                 await Task.Delay(_config.PollIntervalMs, token).ConfigureAwait(false);
             }
+        }
+
+        private IEnumerable<CropRegion> EnumerateCropRegions()
+        {
+            yield return _config.CropRegion;
+
+            foreach (var cropRegion in _config.AdditionalCropRegions)
+                yield return cropRegion;
         }
 
         private async Task ProcessScreenshot(byte[] pixels, uint width, uint height)

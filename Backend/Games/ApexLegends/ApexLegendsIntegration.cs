@@ -8,17 +8,28 @@ namespace Segra.Backend.Games.ApexLegends
         {
             LogPrefix = "Apex",
 
-            // Covers Apex's central/lower notification area plus the full champion banner.
+            // Covers Apex's central/lower notification area.
             // CropRegion coordinates are normalized percentages of the captured game frame.
             // If events are missed, tune Y/Height to move or resize the crop before changing keywords.
             // Works best when Apex Legends' UI language is set to English.
             // OCR can produce false positives, so EventCooldown limits repeated bookmarks.
             CropRegion = new CropRegion(
                 X: 0.15,
-                Y: 0.28,
+                Y: 0.35,
                 Width: 0.70,
-                Height: 0.52
+                Height: 0.45
             ),
+            AdditionalCropRegions =
+            [
+                // Fullscreen champion banner: includes the smaller "YOU ARE THE" line above
+                // the large "CHAMPION" text without changing the normal combat-event crop.
+                new CropRegion(
+                    X: 0.15,
+                    Y: 0.28,
+                    Width: 0.70,
+                    Height: 0.52
+                )
+            ],
 
             Threshold = 145,
             PollIntervalMs = 200,
