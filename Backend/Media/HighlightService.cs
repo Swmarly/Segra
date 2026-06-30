@@ -22,6 +22,8 @@ namespace Segra.Backend.Media
     /// </summary>
     public static class HighlightService
     {
+        private const double KillChainMergeWindowSeconds = 15.0;
+
         /// <summary>
         /// Creates a highlight video from all highlight-worthy bookmarks (Kill, Goal, etc.).
         /// Uses stream copy for fast extraction without re-encoding.
@@ -56,11 +58,7 @@ namespace Segra.Backend.Media
 
                 double paddingBefore = Settings.Instance.HighlightPaddingBefore;
                 double paddingAfter = Settings.Instance.HighlightPaddingAfter;
-                var segments = highlightBookmarks.Select(b => new TimeSegment
-                {
-                    StartTime = Math.Max(0, b.Time.TotalSeconds - paddingBefore),
-                    EndTime = b.Time.TotalSeconds + paddingAfter
-                }).ToList();
+                var segments = CreateHighlightSegments(highlightBookmarks, paddingBefore, paddingAfter);
 
                 var mergedSegments = MergeOverlappingSegments(segments);
                 Log.Information($"Merged {segments.Count} segments into {mergedSegments.Count} clips");
@@ -133,6 +131,51 @@ namespace Segra.Backend.Media
                 progressCallback?.Invoke(-1, $"Error: {ex.Message}");
                 return HighlightCreationResult.Failed;
             }
+        }
+
+        private static List<TimeSegment> CreateHighlightSegments(List<Bookmark> bookmarks, double paddingBefore, double paddingAfter)
+        {
+            var segments = new List<TimeSegment>();
+            var sorted = bookmarks.OrderBy(b => b.Time).ToList();
+
+            for (int i = 0; i < sorted.Count; i++)
+            {
+                var bookmark = sorted[i];
+                if (!CanMergeIntoFightChain(bookmark.Type))
+                {
+                    segments.Add(CreateSegment(bookmark.Time.TotalSeconds, bookmark.Time.TotalSeconds, paddingBefore, paddingAfter));
+                    continue;
+                }
+
+                double firstMomentTime = bookmark.Time.TotalSeconds;
+                double lastMomentTime = firstMomentTime;
+
+                while (i + 1 < sorted.Count &&
+                       CanMergeIntoFightChain(sorted[i + 1].Type) &&
+                       sorted[i + 1].Time.TotalSeconds - lastMomentTime <= KillChainMergeWindowSeconds)
+                {
+                    i++;
+                    lastMomentTime = sorted[i].Time.TotalSeconds;
+                }
+
+                segments.Add(CreateSegment(firstMomentTime, lastMomentTime, paddingBefore, paddingAfter));
+            }
+
+            return segments;
+        }
+
+        private static bool CanMergeIntoFightChain(BookmarkType type)
+        {
+            return type == BookmarkType.Kill || type == BookmarkType.Goal;
+        }
+
+        private static TimeSegment CreateSegment(double startMomentSeconds, double endMomentSeconds, double paddingBefore, double paddingAfter)
+        {
+            return new TimeSegment
+            {
+                StartTime = Math.Max(0, startMomentSeconds - paddingBefore),
+                EndTime = endMomentSeconds + paddingAfter
+            };
         }
 
         /// <summary>
