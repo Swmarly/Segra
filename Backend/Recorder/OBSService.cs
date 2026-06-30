@@ -67,6 +67,7 @@ namespace Segra.Backend.Recorder
         private static MonitorCapture? _displaySource;
         private static readonly List<AudioInputCapture> _micSources = [];
         private static readonly List<AudioOutputCapture> _desktopSources = [];
+        private static readonly List<(DeviceSetting Setting, Source Source)> _processAudioSources = [];
         private static readonly List<(string Name, string Window, Source Source)> _voiceChatSources = [];
 
         // Mixer mask of the shared "Voice Chat" track, so sources created mid-recording land on the same track
@@ -886,6 +887,18 @@ namespace Segra.Backend.Recorder
                 }
             }
 
+            if (Settings.Instance.ProcessAudioSources != null && Settings.Instance.ProcessAudioSources.Count > 0)
+            {
+                foreach (var processSetting in Settings.Instance.ProcessAudioSources)
+                {
+                    var processSource = TryAddProcessAudioSource(processSetting, muted: false);
+                    if (processSource != null)
+                    {
+                        processSource.Volume = processSetting.Volume;
+                    }
+                }
+            }
+
             // In GameAndDiscord mode, capture audio from running voice chat apps. Sources start muted
             // (desktop audio covers voice chat until the game hooks); apps launched mid-recording are
             // added via OnVoiceChatAppStarted.
@@ -909,6 +922,8 @@ namespace Segra.Backend.Recorder
                 trackGroups.Add([micSource]);
             foreach (var desktopSource in _desktopSources)
                 trackGroups.Add([desktopSource]);
+            foreach (var (_, processSource) in _processAudioSources)
+                trackGroups.Add([processSource]);
 
             int voiceChatGroupIndex = -1;
             if (audioOutputMode != AudioOutputMode.All && GameCaptureSource != null)
@@ -924,6 +939,8 @@ namespace Segra.Backend.Recorder
                 trackGroups = [];
                 foreach (var micSource in _micSources)
                     trackGroups.Add([micSource]);
+                foreach (var (_, processSource) in _processAudioSources)
+                    trackGroups.Add([processSource]);
                 trackGroups.Add([GameCaptureSource]);
 
                 // The voice chat group is reserved even when currently empty so apps launched
@@ -950,7 +967,12 @@ namespace Segra.Backend.Recorder
                         audioDeviceNames.Add(device.Name.Replace(" (Default)", "") ?? "Desktop Audio");
                 }
             }
-            else
+            if (Settings.Instance.ProcessAudioSources != null)
+            {
+                foreach (var process in Settings.Instance.ProcessAudioSources.Where(d => !string.IsNullOrEmpty(d.Id)))
+                    audioDeviceNames.Add(process.Name.Replace(" (Default)", "") ?? "Process Audio");
+            }
+            if (audioOutputMode != AudioOutputMode.All && GameCaptureSource != null)
             {
                 audioDeviceNames.Add("Game Audio");
                 if (audioOutputMode == AudioOutputMode.GameAndDiscord)
@@ -1908,6 +1930,61 @@ namespace Segra.Backend.Recorder
             }
         }
 
+        private static Source? TryAddProcessAudioSource(DeviceSetting processSetting, bool muted)
+        {
+            try
+            {
+                string exeName = NormalizeProcessExeName(processSetting.Id);
+                string displayName = string.IsNullOrWhiteSpace(processSetting.Name)
+                    ? Path.GetFileNameWithoutExtension(exeName)
+                    : processSetting.Name;
+                string sourceName = $"ProcessAudio_{SanitizeObsSourceName(displayName)}_{_processAudioSources.Count + 1}";
+                string window = BuildProcessAudioWindow(displayName, exeName);
+
+                var processSource = new Source("wasapi_process_output_capture", sourceName);
+                processSource.Update(s =>
+                {
+                    s.Set("window", window);
+                    s.Set("priority", 2); // WINDOW_PRIORITY_EXE
+                });
+                processSource.IsMuted = muted;
+                processSource.Volume = processSetting.Volume;
+                _mainScene!.AddSource(processSource);
+                _processAudioSources.Add((processSetting, processSource));
+                Log.Information($"Added process audio capture source: {displayName} ({exeName})");
+                return processSource;
+            }
+            catch (Exception ex)
+            {
+                Log.Warning($"Failed to create process audio capture source for {processSetting.Name} ({processSetting.Id}): {ex.Message}");
+                return null;
+            }
+        }
+
+        private static string NormalizeProcessExeName(string processId)
+        {
+            string exeName = Path.GetFileName(processId ?? string.Empty);
+            if (string.IsNullOrWhiteSpace(exeName))
+                exeName = processId ?? string.Empty;
+            return exeName.EndsWith(".exe", StringComparison.OrdinalIgnoreCase)
+                ? exeName
+                : $"{exeName}.exe";
+        }
+
+        private static string BuildProcessAudioWindow(string displayName, string exeName)
+        {
+            string title = string.IsNullOrWhiteSpace(displayName)
+                ? Path.GetFileNameWithoutExtension(exeName)
+                : displayName.Replace(":", "");
+            return $"{title}:SegraProcessAudio:{exeName}";
+        }
+
+        private static string SanitizeObsSourceName(string name)
+        {
+            string sanitized = Regex.Replace(name, @"[^A-Za-z0-9_]+", "_").Trim('_');
+            return string.IsNullOrWhiteSpace(sanitized) ? "Process" : sanitized;
+        }
+
         private static Source? TryAddVoiceChatSource((string Name, string Window) app, bool muted)
         {
             try
@@ -2049,6 +2126,19 @@ namespace Segra.Backend.Recorder
                 }
             }
             _desktopSources.Clear();
+
+            foreach (var (processSetting, processSource) in _processAudioSources)
+            {
+                try
+                {
+                    processSource.Dispose();
+                }
+                catch (Exception ex)
+                {
+                    Log.Warning($"Failed to dispose {processSetting.Name} process audio source: {ex.Message}");
+                }
+            }
+            _processAudioSources.Clear();
 
             // Dispose voice chat audio sources
             foreach (var (voiceName, _, voiceSource) in _voiceChatSources)

@@ -612,6 +612,13 @@ namespace Segra.Backend.Core
                 hasChanges = true;
             }
 
+            if (!settings.ProcessAudioSources.SequenceEqual(updatedSettings.ProcessAudioSources, new DeviceSettingEqualityComparer()))
+            {
+                Log.Information($"ProcessAudioSources changed from '[{string.Join(", ", settings.ProcessAudioSources.Select(d => $"{d.Name}"))}]' to '[{string.Join(", ", updatedSettings.ProcessAudioSources.Select(d => $"{d.Name}"))}]'");
+                settings.ProcessAudioSources = updatedSettings.ProcessAudioSources;
+                hasChanges = true;
+            }
+
             if (settings.ForceMonoInputSources != updatedSettings.ForceMonoInputSources)
             {
                 Log.Information($"ForceMonoInputSources changed from '{settings.ForceMonoInputSources}' to '{updatedSettings.ForceMonoInputSources}'");

@@ -1,5 +1,6 @@
 using NAudio.CoreAudioApi;
 using Segra.Backend.Core.Models;
+using System.Diagnostics;
 using System.Text.RegularExpressions;
 
 namespace Segra.Backend.Windows.Audio
@@ -9,6 +10,51 @@ namespace Segra.Backend.Windows.Audio
         public static List<AudioDevice> GetInputDevices() => GetDevices(DataFlow.Capture, Role.Communications);
 
         public static List<AudioDevice> GetOutputDevices() => GetDevices(DataFlow.Render, Role.Console);
+
+        public static List<AudioDevice> GetProcessAudioSources()
+        {
+            var sources = new Dictionary<string, AudioDevice>(StringComparer.OrdinalIgnoreCase);
+            using var currentProcess = Process.GetCurrentProcess();
+
+            foreach (var process in Process.GetProcesses())
+            {
+                try
+                {
+                    if (process.Id == currentProcess.Id || process.HasExited)
+                        continue;
+
+                    string processName = process.ProcessName;
+                    if (string.IsNullOrWhiteSpace(processName))
+                        continue;
+
+                    string exeName = processName.EndsWith(".exe", StringComparison.OrdinalIgnoreCase)
+                        ? processName
+                        : $"{processName}.exe";
+
+                    if (sources.ContainsKey(exeName))
+                        continue;
+
+                    sources[exeName] = new AudioDevice
+                    {
+                        Id = exeName,
+                        Name = processName,
+                        IsDefault = false
+                    };
+                }
+                catch
+                {
+                    // Processes can exit or deny access while enumerating.
+                }
+                finally
+                {
+                    process.Dispose();
+                }
+            }
+
+            return sources.Values
+                .OrderBy(source => source.Name)
+                .ToList();
+        }
 
         private static string GetCleanDeviceName(string friendlyName)
         {

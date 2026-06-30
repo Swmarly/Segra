@@ -403,8 +403,12 @@ namespace Segra.Backend.App
             Log.Information($"Configured output devices ({s.OutputDevices.Count}):");
             foreach (var d in s.OutputDevices)
                 Log.Information($"  - {d.Name} (id={d.Id}, volume={d.Volume:F2})");
+            Log.Information($"Configured process audio sources ({s.ProcessAudioSources.Count}):");
+            foreach (var d in s.ProcessAudioSources)
+                Log.Information($"  - {d.Name} (id={d.Id}, volume={d.Volume:F2})");
             Log.Information($"Detected input devices: {AppState.Instance.InputDevices.Count}");
             Log.Information($"Detected output devices: {AppState.Instance.OutputDevices.Count}");
+            Log.Information($"Detected process audio sources: {AppState.Instance.ProcessAudioSources.Count}");
             Log.Information($"Force mono input: {s.ForceMonoInputSources}");
             Log.Information($"Input noise suppression: {s.InputNoiseSuppression}");
             Log.Information($"Separate audio tracks: {s.EnableSeparateAudioTracks}");

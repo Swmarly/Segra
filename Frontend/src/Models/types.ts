@@ -39,6 +39,7 @@ export interface State {
   content: Content[];
   inputDevices: AudioDevice[];
   outputDevices: AudioDevice[];
+  processAudioSources: AudioDevice[];
   displays: Display[];
   codecs: Codec[];
   availableOBSVersions: OBSVersion[];
@@ -283,6 +284,7 @@ export interface Settings {
   cacheFolder: string;
   inputDevices: DeviceSetting[];
   outputDevices: DeviceSetting[];
+  processAudioSources: DeviceSetting[];
   forceMonoInputSources: boolean;
   inputNoiseSuppression: boolean;
   selectedDisplay: Display | null;
@@ -335,6 +337,7 @@ export const initialState: State = {
   content: [],
   inputDevices: [],
   outputDevices: [],
+  processAudioSources: [],
   displays: [],
   codecs: [],
   availableOBSVersions: [],
@@ -363,6 +366,7 @@ export const initialSettings: Settings = {
   cacheFolder: '',
   inputDevices: [],
   outputDevices: [],
+  processAudioSources: [],
   forceMonoInputSources: false,
   inputNoiseSuppression: true,
   selectedDisplay: null, // Default to null (auto-select)

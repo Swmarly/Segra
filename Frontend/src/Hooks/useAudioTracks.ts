@@ -145,8 +145,9 @@ export function useAudioTracks(
     for (const td of trackDataRef.current.values()) {
       let muted: boolean;
       if (td.segraIndex === 0) {
-        // Track 0 is Segra's Full Mix. Let the native <video> element render it so
-        // app/window capture tools such as Discord can see a normal media stream.
+        // Track 0 is Segra's Full Mix. The native playback service renders it
+        // more reliably for long MP4s; the video page forwards its mixer
+        // volume/mute state to that service.
         muted = true;
       } else if (solo !== null) {
         muted = td.segraIndex !== solo;

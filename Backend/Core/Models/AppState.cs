@@ -23,6 +23,7 @@ namespace Segra.Backend.Core.Models
 
         private List<AudioDevice> _inputDevices = [];
         private List<AudioDevice> _outputDevices = [];
+        private List<AudioDevice> _processAudioSources = [];
         private List<Display> _displays = [];
         private List<Codec> _codecs = [];
         private List<OBSVersion> _availableOBSVersions = [];
@@ -146,6 +147,20 @@ namespace Segra.Backend.Core.Models
             }
         }
 
+        [JsonPropertyName("processAudioSources")]
+        public List<AudioDevice> ProcessAudioSources
+        {
+            get => _processAudioSources;
+            set
+            {
+                if (_processAudioSources != value)
+                {
+                    _processAudioSources = value;
+                    SendToFrontend("State update: ProcessAudioSources");
+                }
+            }
+        }
+
         [JsonPropertyName("displays")]
         public List<Display> Displays
         {
@@ -255,6 +270,12 @@ namespace Segra.Backend.Core.Models
                 _outputDevices = outputDevices;
             }
 
+            List<AudioDevice> processAudioSources = AudioDeviceService.GetProcessAudioSources();
+            if (!Enumerable.SequenceEqual(_processAudioSources, processAudioSources))
+            {
+                _processAudioSources = processAudioSources;
+            }
+
             Log.Information("Audio devices");
             Log.Information("-------------");
             foreach (AudioDevice device in InputDevices)
@@ -265,6 +286,10 @@ namespace Segra.Backend.Core.Models
             foreach (AudioDevice device in OutputDevices)
             {
                 Log.Information($"Output device: {device.Name} {device.Id}");
+            }
+            foreach (AudioDevice process in ProcessAudioSources)
+            {
+                Log.Information($"Process audio source: {process.Name} {process.Id}");
             }
             Log.Information("-------------");
 

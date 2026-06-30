@@ -414,6 +414,11 @@ export default function VideoComponent({ video }: { video: Content }) {
     playbackRate,
   });
   const nativeAudioLastSyncRef = useRef(0);
+  const segmentsRef = useRef(segments);
+
+  useEffect(() => {
+    segmentsRef.current = segments;
+  }, [segments]);
 
   useLayoutEffect(() => {
     nativeAudioStateRef.current = {
@@ -447,6 +452,23 @@ export default function VideoComponent({ video }: { video: Content }) {
       nativeAudioLastSyncRef.current = now;
 
       const state = nativeAudioStateRef.current;
+      const time = overrides?.time ?? vid.currentTime;
+      let volume = overrides?.volume ?? state.volume;
+      let muted = overrides?.muted ?? state.isMuted;
+
+      if (audioTracks.isMultiTrack) {
+        const activeSeg = segmentsRef.current.find((s) => time >= s.startTime && time <= s.endTime);
+        const effectiveMuted = new Set(activeSeg?.mutedAudioTracks ?? [...audioTracks.mutedTracks]);
+        const effectiveVolumes = activeSeg?.audioTrackVolumes ?? audioTracks.volumes;
+        const fullMixMuted =
+          audioTracks.soloTrack !== null ? audioTracks.soloTrack !== 0 : effectiveMuted.has(0);
+
+        const masterVolume = overrides?.volume ?? audioTracks.masterVolume;
+        const masterMuted = overrides?.muted ?? audioTracks.masterMuted;
+        volume = masterVolume * (effectiveVolumes[0] ?? 1);
+        muted = masterMuted || fullMixMuted || volume <= 0;
+      }
+
       const requestedPlaying = overrides?.playing ?? (!vid.paused && !vid.ended);
       const playing =
         fullscreenAudioTransitionRef.current && fullscreenWasPlayingRef.current && !vid.ended
@@ -454,15 +476,22 @@ export default function VideoComponent({ video }: { video: Content }) {
           : requestedPlaying;
       sendMessageToBackend('SyncNativePlaybackAudio', {
         FilePath: state.filePath,
-        Time: overrides?.time ?? vid.currentTime,
+        Time: time,
         Playing: playing,
-        Volume: overrides?.volume ?? state.volume,
-        Muted: overrides?.muted ?? state.isMuted,
+        Volume: volume,
+        Muted: muted,
         PlaybackRate: vid.playbackRate || state.playbackRate || 1,
         ForceSeek: overrides?.forceSeek ?? false,
       });
     },
-    [],
+    [
+      audioTracks.isMultiTrack,
+      audioTracks.masterMuted,
+      audioTracks.masterVolume,
+      audioTracks.mutedTracks,
+      audioTracks.soloTrack,
+      audioTracks.volumes,
+    ],
   );
 
   useEffect(() => {
@@ -534,10 +563,6 @@ export default function VideoComponent({ video }: { video: Content }) {
     () => [...segments].sort((a, b) => a.startTime - b.startTime),
     [segments],
   );
-  const segmentsRef = useRef(segments);
-  useEffect(() => {
-    segmentsRef.current = segments;
-  }, [segments]);
 
   // Track in-flight thumbnail requests to avoid stale overwrites
   const thumbnailReqTokenRef = useRef<Map<number, number>>(new Map());
@@ -716,6 +741,21 @@ export default function VideoComponent({ video }: { video: Content }) {
   useEffect(() => {
     segmentsDirtyRef.current = true;
   }, [segments]);
+
+  useEffect(() => {
+    if (audioTracks.isMultiTrack) {
+      syncNativePlaybackAudio(true);
+    }
+  }, [
+    audioTracks.isMultiTrack,
+    audioTracks.masterMuted,
+    audioTracks.masterVolume,
+    audioTracks.mutedTracks,
+    audioTracks.soloTrack,
+    audioTracks.volumes,
+    segments,
+    syncNativePlaybackAudio,
+  ]);
 
   // Clean up overrides when multi-track is deactivated
   useEffect(() => {
@@ -1258,6 +1298,12 @@ export default function VideoComponent({ video }: { video: Content }) {
           ? segments[segments.length - 1].mutedAudioTracks
           : audioTracks.isMultiTrack
             ? [...audioTracks.mutedTracks]
+            : undefined,
+      audioTrackVolumes:
+        segments.length > 0
+          ? segments[segments.length - 1].audioTrackVolumes
+          : audioTracks.isMultiTrack
+            ? { ...audioTracks.volumes }
             : undefined,
     };
     addSegment(newSegment);

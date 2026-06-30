@@ -58,6 +58,9 @@ namespace Segra.Backend.App
 
                     switch (method)
                     {
+                        case "RefreshAudioSources":
+                            AppState.Instance.UpdateAudioDevices();
+                            break;
                         case "ToggleFullscreen":
                             if (root.TryGetProperty("Parameters", out var fsParams) &&
                                 fsParams.TryGetProperty("enabled", out var enabledEl))

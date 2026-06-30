@@ -41,6 +41,7 @@ namespace Segra.Backend.Core.Models
         private int _storageLimit = 100;
         private List<DeviceSetting> _inputDevices = new List<DeviceSetting>();
         private List<DeviceSetting> _outputDevices = new List<DeviceSetting>();
+        private List<DeviceSetting> _processAudioSources = new List<DeviceSetting>();
         private bool _forceMonoInputSources = false;
         private Display? _selectedDisplay = null;
         private DisplayCaptureMethod _displayCaptureMethod = DisplayCaptureMethod.Auto;
@@ -336,6 +337,16 @@ namespace Segra.Backend.Core.Models
             set
             {
                 _outputDevices = value;
+            }
+        }
+
+        [JsonPropertyName("processAudioSources")]
+        public List<DeviceSetting> ProcessAudioSources
+        {
+            get => _processAudioSources;
+            set
+            {
+                _processAudioSources = value;
             }
         }
 

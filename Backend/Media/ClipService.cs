@@ -468,6 +468,7 @@ namespace Segra.Backend.Media
                 int silenceInputIdx = 1; // lavfi inputs start at 1 (0 is the main file)
 
                 bool sourceHasIndividualTracks = audioTrackNames != null && audioTrackNames.Count > 1;
+                bool fullMixEnabled = mutedAudioTracks == null || !mutedAudioTracks.Contains(0);
 
                 // Enabled individual source tracks (index > 0, not muted)
                 var enabledSourceTracks = new List<int>();
@@ -494,6 +495,10 @@ namespace Segra.Backend.Media
 
                 // Count how many times each source audio stream index is referenced
                 var refCount = new Dictionary<int, int>();
+                if (sourceHasIndividualTracks && fullMixEnabled)
+                {
+                    refCount[0] = 1;
+                }
                 foreach (int i in enabledSourceTracks)
                 {
                     refCount.TryGetValue(i, out int c);
@@ -529,7 +534,14 @@ namespace Segra.Backend.Media
                 if (!sourceHasIndividualTracks)
                 {
                     // No individual track metadata -- pass through the source's default audio
-                    filterParts.Add($"[0:a:0]{atrim}[out_a0]");
+                    string volFilter = WithAtrim(GetVolumeFilter(audioTrackVolumes, 0), durationStr);
+                    filterParts.Add($"[0:a:0]{volFilter}[out_a0]");
+                    mapParts.Add("-map \"[out_a0]\"");
+                }
+                else if (fullMixEnabled)
+                {
+                    string volFilter = WithAtrim(GetVolumeFilter(audioTrackVolumes, 0), durationStr);
+                    filterParts.Add($"{available[0].Dequeue()}{volFilter}[out_a0]");
                     mapParts.Add("-map \"[out_a0]\"");
                 }
                 else if (enabledSourceTracks.Count == 0)
@@ -598,6 +610,7 @@ namespace Segra.Backend.Media
             else
             {
                 // Legacy paths (keepSeparate=false or no track metadata)
+                bool fullMixEnabled = mutedAudioTracks == null || !mutedAudioTracks.Contains(0);
                 bool hasMutedTracks = mutedAudioTracks != null && mutedAudioTracks.Count > 0 && audioTrackNames != null && audioTrackNames.Count > 1;
                 bool hasVolumeChanges = audioTrackVolumes != null && audioTrackVolumes.Any(kv => Math.Abs(kv.Value - 1.0) > 0.001);
                 bool needsAudioProcessing = hasMutedTracks || (hasVolumeChanges && audioTrackNames != null && audioTrackNames.Count > 1);
@@ -611,7 +624,21 @@ namespace Segra.Backend.Media
                             enabledTracks.Add(i);
                     }
 
-                    if (enabledTracks.Count > 0)
+                    if (fullMixEnabled)
+                    {
+                        double fullMixVol = GetTrackVolume(audioTrackVolumes, 0);
+                        if (Math.Abs(fullMixVol - 1.0) > 0.001)
+                        {
+                            filterArgs = $"-filter_complex \"[0:a:0]volume={fullMixVol.ToString(CultureInfo.InvariantCulture)}[fullmix]\" ";
+                            mapArgs = "-map 0:v:0 -map \"[fullmix]\" ";
+                        }
+                        else
+                        {
+                            mapArgs = "-map 0:v:0 -map 0:a:0 ";
+                        }
+                        metadataArgs = "-metadata:s:a:0 title=\"Full Mix\" ";
+                    }
+                    else if (enabledTracks.Count > 0)
                     {
                         bool anyVolChange = enabledTracks.Any(i => Math.Abs(GetTrackVolume(audioTrackVolumes, i) - 1.0) > 0.001);
 

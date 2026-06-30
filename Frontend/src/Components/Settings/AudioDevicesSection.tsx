@@ -1,15 +1,26 @@
 import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { TriangleAlert, X, CircleAlert, Volume2, Gamepad2 } from 'lucide-react';
+import {
+  TriangleAlert,
+  X,
+  CircleAlert,
+  Volume2,
+  Gamepad2,
+  ListMusic,
+  RefreshCw,
+} from 'lucide-react';
 import { DiscordIcon, TeamSpeakIcon } from '../icons/BrandIcons';
 import Button from '../Button';
 import { Settings as SettingsType, AudioDevice, AudioOutputMode } from '../../Models/types';
 import { useAppState } from '../../Context/AppStateContext';
+import { sendMessageToBackend } from '../../Utils/MessageUtils';
 
 interface AudioDevicesSectionProps {
   settings: SettingsType;
   updateSettings: (updates: Partial<SettingsType>) => void;
 }
+
+type AudioSourceType = 'input' | 'output' | 'process';
 
 export default function AudioDevicesSection({
   settings,
@@ -19,7 +30,7 @@ export default function AudioDevicesSection({
   const isRecording = appState.recording != null || appState.preRecording != null;
   const [draggingVolume, setDraggingVolume] = useState<{
     deviceId: string | null;
-    deviceType: 'input' | 'output' | null;
+    deviceType: AudioSourceType | null;
     volume: number | null;
   }>({ deviceId: null, deviceType: null, volume: null });
 
@@ -41,7 +52,8 @@ export default function AudioDevicesSection({
         ? 1
         : 0;
   const selectedOutputIds = settings.outputDevices.map((d) => d.id);
-  const combinedSelectedIds = [...selectedInputIds, ...selectedOutputIds];
+  const selectedProcessIds = settings.processAudioSources.map((d) => d.id);
+  const combinedSelectedIds = [...selectedInputIds, ...selectedOutputIds, ...selectedProcessIds];
   const totalSourceCount = combinedSelectedIds.length + implicitOutputCount;
   const maxIsolatedTracks = 5;
   const hasOverTrackLimit =
@@ -61,10 +73,19 @@ export default function AudioDevicesSection({
   }, [selectionSig, hasOverTrackLimit]);
 
   // Generic function to toggle device selection
-  const toggleDevice = (deviceId: string, deviceType: 'input' | 'output') => {
+  const toggleDevice = (deviceId: string, deviceType: AudioSourceType) => {
     const isInput = deviceType === 'input';
-    const selectedDevices = isInput ? settings.inputDevices : settings.outputDevices;
-    const availableDevices = isInput ? appState.inputDevices : appState.outputDevices;
+    const isProcess = deviceType === 'process';
+    const selectedDevices = isInput
+      ? settings.inputDevices
+      : isProcess
+        ? settings.processAudioSources
+        : settings.outputDevices;
+    const availableDevices = isInput
+      ? appState.inputDevices
+      : isProcess
+        ? (appState.processAudioSources ?? [])
+        : appState.outputDevices;
 
     const isSelected = selectedDevices.some((d) => d.id === deviceId);
     let updatedDevices;
@@ -72,7 +93,7 @@ export default function AudioDevicesSection({
     if (isSelected) {
       updatedDevices = selectedDevices.filter((d) => d.id !== deviceId);
     } else {
-      if (deviceId === 'default') {
+      if (deviceId === 'default' && !isProcess) {
         updatedDevices = [
           ...selectedDevices,
           { id: 'default', name: 'Default Device', volume: 1.0 },
@@ -90,15 +111,22 @@ export default function AudioDevicesSection({
 
     if (isInput) {
       updateSettings({ inputDevices: updatedDevices });
+    } else if (isProcess) {
+      updateSettings({ processAudioSources: updatedDevices });
     } else {
       updateSettings({ outputDevices: updatedDevices });
     }
   };
 
   // Generic function to handle device volume change
-  const handleVolumeChange = (deviceId: string, volume: number, deviceType: 'input' | 'output') => {
+  const handleVolumeChange = (deviceId: string, volume: number, deviceType: AudioSourceType) => {
     const isInput = deviceType === 'input';
-    const selectedDevices = isInput ? settings.inputDevices : settings.outputDevices;
+    const isProcess = deviceType === 'process';
+    const selectedDevices = isInput
+      ? settings.inputDevices
+      : isProcess
+        ? settings.processAudioSources
+        : settings.outputDevices;
 
     const updatedDevices = selectedDevices.map((device) =>
       device.id === deviceId ? { ...device, volume: volume } : device,
@@ -106,19 +134,30 @@ export default function AudioDevicesSection({
 
     if (isInput) {
       updateSettings({ inputDevices: updatedDevices });
+    } else if (isProcess) {
+      updateSettings({ processAudioSources: updatedDevices });
     } else {
       updateSettings({ outputDevices: updatedDevices });
     }
   };
 
   // Render device list component
-  const renderDeviceList = (deviceType: 'input' | 'output') => {
+  const renderDeviceList = (deviceType: AudioSourceType) => {
     const isInput = deviceType === 'input';
-    const selectedDevices = isInput ? settings.inputDevices : settings.outputDevices;
-    const availableDevices = isInput ? appState.inputDevices : appState.outputDevices;
+    const isProcess = deviceType === 'process';
+    const selectedDevices = isInput
+      ? settings.inputDevices
+      : isProcess
+        ? settings.processAudioSources
+        : settings.outputDevices;
+    const availableDevices = isInput
+      ? appState.inputDevices
+      : isProcess
+        ? (appState.processAudioSources ?? [])
+        : appState.outputDevices;
 
     const defaultDevice: AudioDevice = { id: 'default', name: 'Default Device', isDefault: false };
-    const allDevices = [defaultDevice, ...availableDevices];
+    const allDevices = isProcess ? availableDevices : [defaultDevice, ...availableDevices];
 
     return (
       <>
@@ -215,6 +254,10 @@ export default function AudioDevicesSection({
             </label>
           </div>
         ))}
+
+        {isProcess && allDevices.length === 0 && (
+          <div className="px-1 py-2 text-sm text-base-content/60">No running processes found.</div>
+        )}
 
         {/* Show unavailable devices that are still selected */}
         {selectedDevices
@@ -422,6 +465,28 @@ export default function AudioDevicesSection({
               </label>
             ))}
           </div>
+        </div>
+      </div>
+
+      <div className="form-control mt-4">
+        <div className="label">
+          <span className="label-text text-base-content flex items-center gap-1.5">
+            Process Audio Sources
+            <ListMusic className="h-4 w-4" />
+          </span>
+          <Button
+            variant="ghost"
+            size="xs"
+            aria-label="Refresh process audio sources"
+            className="h-7 min-h-0 px-2"
+            disabled={isRecording}
+            onClick={() => sendMessageToBackend('RefreshAudioSources')}
+          >
+            <RefreshCw className="h-4 w-4" />
+          </Button>
+        </div>
+        <div className="bg-base-200 rounded-lg p-2 max-h-48 overflow-y-visible overflow-x-hidden border border-base-400 min-h-12.5">
+          {renderDeviceList('process')}
         </div>
       </div>
 
