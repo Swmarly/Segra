@@ -86,13 +86,15 @@ namespace Segra.Backend.Media
 
                 progressCallback?.Invoke(10, "Extracting clips...");
 
-                // Extract and concatenate segments using stream copy
+                // Extract and concatenate segments while preserving the requested audio layout.
                 bool keepSeparateAudioTracks = Settings.Instance.HighlightKeepSeparateAudioTracks;
+                var audioTrackNames = keepSeparateAudioTracks ? content.AudioTrackNames : null;
                 bool success = await ExtractAndConcatenateSegments(
                     inputFilePath,
                     outputFilePath,
                     mergedSegments,
                     keepSeparateAudioTracks,
+                    audioTrackNames,
                     (progress, message) => progressCallback?.Invoke(10 + (int)(progress * 80), message)
                 );
 
@@ -110,7 +112,6 @@ namespace Segra.Backend.Media
 
                 // Create metadata, thumbnail, and waveform.
                 // When enabled, highlights explicitly map all streams and preserve the source's audio tracks.
-                var audioTrackNames = keepSeparateAudioTracks ? content.AudioTrackNames : null;
                 await ContentService.CreateMetadataFile(outputFilePath, Content.ContentType.Highlight, content.Game!, null, content.Title, igdbId: content.IgdbId, audioTrackNames: audioTrackNames);
 
                 progressCallback?.Invoke(95, "Creating thumbnail...");
@@ -195,6 +196,7 @@ namespace Segra.Backend.Media
             string outputFilePath,
             List<TimeSegment> segments,
             bool keepSeparateAudioTracks = false,
+            List<string>? audioTrackNames = null,
             Action<double, string>? progressCallback = null)
         {
             if (!FFmpegService.FFmpegExists())
@@ -237,6 +239,13 @@ namespace Segra.Backend.Media
                     if (keepSeparateAudioTracks)
                     {
                         arguments.AddRange(new[] { "-map", "0:v:0", "-map", "0:a?" });
+                        if (audioTrackNames != null)
+                        {
+                            for (int trackIndex = 0; trackIndex < audioTrackNames.Count; trackIndex++)
+                            {
+                                arguments.AddRange(new[] { $"-metadata:s:a:{trackIndex}", $"title={audioTrackNames[trackIndex]}" });
+                            }
+                        }
                     }
 
                     arguments.AddRange(new[]
@@ -278,7 +287,8 @@ namespace Segra.Backend.Media
                 var concatLines = tempFiles.Select(FFmpegService.BuildConcatListLine);
                 await File.WriteAllLinesAsync(concatFilePath, concatLines);
 
-                // Concatenate all segments using stream copy
+                // Concatenate all segments. For separate audio tracks, keep video copied but
+                // re-encode audio so every mapped track survives the concat cleanly.
                 var concatArguments = new List<string>
                 {
                     "-y",
@@ -292,9 +302,30 @@ namespace Segra.Backend.Media
                     concatArguments.AddRange(new[] { "-map", "0:v:0", "-map", "0:a?" });
                 }
 
+                if (keepSeparateAudioTracks)
+                {
+                    concatArguments.AddRange(new[]
+                    {
+                        "-c:v", "copy",
+                        "-c:a", "aac",
+                        "-b:a", Settings.Instance.ClipAudioQuality
+                    });
+
+                    if (audioTrackNames != null)
+                    {
+                        for (int trackIndex = 0; trackIndex < audioTrackNames.Count; trackIndex++)
+                        {
+                            concatArguments.AddRange(new[] { $"-metadata:s:a:{trackIndex}", $"title={audioTrackNames[trackIndex]}" });
+                        }
+                    }
+                }
+                else
+                {
+                    concatArguments.AddRange(new[] { "-c", "copy" });
+                }
+
                 concatArguments.AddRange(new[]
                 {
-                    "-c", "copy",
                     "-movflags", "+faststart",
                     outputFilePath
                 });
