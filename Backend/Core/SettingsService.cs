@@ -690,6 +690,13 @@ namespace Segra.Backend.Core
                 hasChanges = true;
             }
 
+            if (settings.HighlightKeepSeparateAudioTracks != updatedSettings.HighlightKeepSeparateAudioTracks)
+            {
+                Log.Information($"HighlightKeepSeparateAudioTracks changed from '{settings.HighlightKeepSeparateAudioTracks}' to '{updatedSettings.HighlightKeepSeparateAudioTracks}'");
+                settings.HighlightKeepSeparateAudioTracks = updatedSettings.HighlightKeepSeparateAudioTracks;
+                hasChanges = true;
+            }
+
             if (settings.DiscardSessionAfterHighlights != updatedSettings.DiscardSessionAfterHighlights)
             {
                 Log.Information($"DiscardSessionAfterHighlights changed from '{settings.DiscardSessionAfterHighlights}' to '{updatedSettings.DiscardSessionAfterHighlights}'");

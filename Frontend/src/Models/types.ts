@@ -292,6 +292,7 @@ export interface Settings {
   selectedOBSVersion: string | null; // null means automatic (latest non-beta)
   enableAi: boolean;
   autoGenerateHighlights: boolean;
+  highlightKeepSeparateAudioTracks: boolean;
   discardSessionAfterHighlights: boolean;
   runOnStartup: boolean;
   startupWindowMode: StartupWindowMode; // Window state when launched from startup
@@ -374,6 +375,7 @@ export const initialSettings: Settings = {
   selectedOBSVersion: null, // null means automatic (latest non-beta)
   enableAi: true,
   autoGenerateHighlights: true,
+  highlightKeepSeparateAudioTracks: false,
   discardSessionAfterHighlights: false,
   runOnStartup: false,
   startupWindowMode: 'Minimized',

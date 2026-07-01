@@ -87,10 +87,12 @@ namespace Segra.Backend.Media
                 progressCallback?.Invoke(10, "Extracting clips...");
 
                 // Extract and concatenate segments using stream copy
+                bool keepSeparateAudioTracks = Settings.Instance.HighlightKeepSeparateAudioTracks;
                 bool success = await ExtractAndConcatenateSegments(
                     inputFilePath,
                     outputFilePath,
                     mergedSegments,
+                    keepSeparateAudioTracks,
                     (progress, message) => progressCallback?.Invoke(10 + (int)(progress * 80), message)
                 );
 
@@ -107,8 +109,9 @@ namespace Segra.Backend.Media
                 progressCallback?.Invoke(92, "Creating metadata...");
 
                 // Create metadata, thumbnail, and waveform.
-                // Highlights use stream-copy extract+concat, so they preserve the source's audio tracks.
-                await ContentService.CreateMetadataFile(outputFilePath, Content.ContentType.Highlight, content.Game!, null, content.Title, igdbId: content.IgdbId, audioTrackNames: content.AudioTrackNames);
+                // When enabled, highlights explicitly map all streams and preserve the source's audio tracks.
+                var audioTrackNames = keepSeparateAudioTracks ? content.AudioTrackNames : null;
+                await ContentService.CreateMetadataFile(outputFilePath, Content.ContentType.Highlight, content.Game!, null, content.Title, igdbId: content.IgdbId, audioTrackNames: audioTrackNames);
 
                 progressCallback?.Invoke(95, "Creating thumbnail...");
                 await ContentService.CreateThumbnail(outputFilePath, Content.ContentType.Highlight);
@@ -191,6 +194,7 @@ namespace Segra.Backend.Media
             string inputFilePath,
             string outputFilePath,
             List<TimeSegment> segments,
+            bool keepSeparateAudioTracks = false,
             Action<double, string>? progressCallback = null)
         {
             if (!FFmpegService.FFmpegExists())
@@ -222,16 +226,25 @@ namespace Segra.Backend.Media
 
                     progressCallback?.Invoke(processedDuration / totalDuration, $"Extracting clip {i + 1} of {segments.Count}");
 
-                    var arguments = new[]
+                    var arguments = new List<string>
                     {
                         "-y",
                         "-ss", segment.StartTime.ToString(CultureInfo.InvariantCulture),
                         "-t", segmentDuration.ToString(CultureInfo.InvariantCulture),
-                        "-i", inputFilePath,
+                        "-i", inputFilePath
+                    };
+
+                    if (keepSeparateAudioTracks)
+                    {
+                        arguments.AddRange(new[] { "-map", "0:v:0", "-map", "0:a?" });
+                    }
+
+                    arguments.AddRange(new[]
+                    {
                         "-c", "copy",
                         "-avoid_negative_ts", "make_zero",
                         tempFile
-                    };
+                    });
 
                     await FFmpegService.RunSimple(arguments);
 
@@ -266,16 +279,25 @@ namespace Segra.Backend.Media
                 await File.WriteAllLinesAsync(concatFilePath, concatLines);
 
                 // Concatenate all segments using stream copy
-                var concatArguments = new[]
+                var concatArguments = new List<string>
                 {
                     "-y",
                     "-f", "concat",
                     "-safe", "0",
-                    "-i", concatFilePath,
+                    "-i", concatFilePath
+                };
+
+                if (keepSeparateAudioTracks)
+                {
+                    concatArguments.AddRange(new[] { "-map", "0:v:0", "-map", "0:a?" });
+                }
+
+                concatArguments.AddRange(new[]
+                {
                     "-c", "copy",
                     "-movflags", "+faststart",
                     outputFilePath
-                };
+                });
                 await FFmpegService.RunSimple(concatArguments);
 
                 progressCallback?.Invoke(1.0, "Done");

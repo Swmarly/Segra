@@ -56,6 +56,25 @@ export default function HighlightsSection({ settings, updateSettings }: Highligh
             </span>
           </label>
         </div>
+        {settings.enableSeparateAudioTracks && (
+          <div className="flex items-center">
+            <label className="flex items-center gap-2">
+              <input
+                type="checkbox"
+                name="highlightKeepSeparateAudioTracks"
+                checked={settings.highlightKeepSeparateAudioTracks}
+                onChange={(e) =>
+                  updateSettings({ highlightKeepSeparateAudioTracks: e.target.checked })
+                }
+                className="checkbox checkbox-primary checkbox-sm"
+                disabled={!settings.enableAi || !settings.autoGenerateHighlights}
+              />
+              <span className="flex items-center gap-1 cursor-pointer">
+                Keep Audio Tracks Separated in Auto-Generated Highlights
+              </span>
+            </label>
+          </div>
+        )}
 
         <div className="pt-3 border-t border-custom space-y-4">
           <div>

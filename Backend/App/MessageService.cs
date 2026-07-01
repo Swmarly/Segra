@@ -132,6 +132,10 @@ namespace Segra.Backend.App
                             root.TryGetProperty("Parameters", out JsonElement aiClipParameterElement);
                             _ = Task.Run(() => HandleCreateAiClip(aiClipParameterElement));
                             break;
+                        case "CreateAiClipsForSessions":
+                            root.TryGetProperty("Parameters", out JsonElement aiClipsParameterElement);
+                            _ = Task.Run(() => HandleCreateAiClipsForSessions(aiClipsParameterElement));
+                            break;
                         case "CompressVideo":
                             root.TryGetProperty("Parameters", out JsonElement compressParameterElement);
                             _ = Task.Run(() => HandleCompressVideo(compressParameterElement));
@@ -641,6 +645,72 @@ namespace Segra.Backend.App
             Log.Information($"{message}");
             message.TryGetProperty("FileName", out JsonElement fileNameElement);
             await AiService.CreateHighlight(fileNameElement.GetString()!);
+        }
+
+        private static async Task HandleCreateAiClipsForSessions(JsonElement message)
+        {
+            Log.Information($"CreateAiClipsForSessions: {message}");
+
+            HashSet<string>? requestedFileNames = null;
+            if (message.ValueKind == JsonValueKind.Object &&
+                message.TryGetProperty("FileNames", out JsonElement fileNamesElement) &&
+                fileNamesElement.ValueKind == JsonValueKind.Array)
+            {
+                requestedFileNames = fileNamesElement
+                    .EnumerateArray()
+                    .Where(fileName => fileName.ValueKind == JsonValueKind.String)
+                    .Select(fileName => fileName.GetString()!)
+                    .Where(fileName => !string.IsNullOrWhiteSpace(fileName))
+                    .ToHashSet(StringComparer.OrdinalIgnoreCase);
+            }
+
+            var sessions = AppState.Instance.Content
+                .Where(content => content.Type == Content.ContentType.Session)
+                .Where(content => requestedFileNames == null || requestedFileNames.Contains(content.FileName))
+                .Where(content => content.Bookmarks.Any(bookmark => bookmark.Type.IncludeInHighlight()))
+                .OrderBy(content => content.CreatedAt)
+                .ToList();
+
+            if (sessions.Count == 0)
+            {
+                await ShowModal(
+                    "No highlights to generate",
+                    "No sessions with highlight moments were found.",
+                    "info");
+                return;
+            }
+
+            Log.Information($"Creating highlights for {sessions.Count} session(s)");
+            int createdCount = 0;
+            int deletedCount = 0;
+            foreach (var session in sessions)
+            {
+                var result = await AiService.CreateHighlight(session.FileName);
+                if (result != HighlightCreationResult.Created)
+                {
+                    Log.Information(
+                        "Keeping session because highlight generation did not complete successfully. FileName: {FileName}, Result: {Result}",
+                        session.FileName,
+                        result);
+                    continue;
+                }
+
+                createdCount++;
+                Log.Information("Deleting full session after highlight generation completed: {FilePath}", session.FilePath);
+                await ContentService.DeleteContent(session.FilePath, Content.ContentType.Session, sendToFrontend: false);
+                deletedCount++;
+            }
+
+            if (deletedCount > 0)
+            {
+                await SettingsService.LoadContentFromFolderIntoState(sendToFrontend: true);
+            }
+
+            Log.Information(
+                "Finished bulk highlight generation. Requested: {RequestedCount}, Created: {CreatedCount}, DeletedSessions: {DeletedCount}",
+                sessions.Count,
+                createdCount,
+                deletedCount);
         }
 
         private static async Task HandleCompressVideo(JsonElement message)

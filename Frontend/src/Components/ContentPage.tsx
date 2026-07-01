@@ -25,6 +25,7 @@ interface ContentPageProps {
   progressItems?: Record<string, any>; // For AI highlights or clipping progress
   isProgressVisible?: boolean;
   progressCardElement?: React.ReactNode; // Direct element instead of component
+  headerActions?: React.ReactNode;
 }
 
 export default function ContentPage({
@@ -35,6 +36,7 @@ export default function ContentPage({
   progressItems = {},
   isProgressVisible = false,
   progressCardElement,
+  headerActions,
 }: ContentPageProps) {
   const state = useAppState();
   const { setSelectedVideo } = useSelectedVideo();
@@ -354,6 +356,7 @@ export default function ContentPage({
           <h1 className="text-3xl font-bold">{title}</h1>
         </div>
         <div className="flex items-center gap-2">
+          {headerActions}
           {(sectionId === 'sessions' || sectionId === 'replayBuffer') && (
             <Button
               variant="primary"
