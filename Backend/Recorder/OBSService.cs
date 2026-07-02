@@ -2729,6 +2729,14 @@ namespace Segra.Backend.Recorder
                 return false;
             }
 
+            FileInfo bundledZipInfo = new(bundledZipPath);
+            if (bundledZipInfo.Length < 1024 * 1024)
+            {
+                string preview = await File.ReadAllTextAsync(bundledZipPath);
+                Log.Error($"Bundled OBS fallback is too small to be a real zip ({bundledZipInfo.Length} bytes). It may be a Git LFS pointer. Contents: {preview}");
+                return false;
+            }
+
             try
             {
                 Log.Information($"Installing bundled OBS {BundledOBSVersion} from {bundledZipPath}");
