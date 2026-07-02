@@ -172,6 +172,13 @@ namespace Segra.Backend.Recorder
                     return null;
                 }
 
+                string[] missingVisualCppRuntimeDlls = NativeDependencyService.GetMissingVisualCppRuntimeDlls();
+                if (missingVisualCppRuntimeDlls.Length > 0)
+                {
+                    Log.Warning($"Skipping obs-nvenc-test.exe because Microsoft Visual C++ runtime DLLs are missing: {string.Join(", ", missingVisualCppRuntimeDlls)}");
+                    return null;
+                }
+
                 string fingerprint = GetFingerprint(exePath);
 
                 var cached = TryLoadCache(fingerprint);

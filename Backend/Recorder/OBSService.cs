@@ -31,6 +31,7 @@ namespace Segra.Backend.Recorder
     {
         private const string BundledOBSVersion = "32.1.2";
         private const string BundledOBSZipRelativePath = @"Obs\OBS 32.1.2.zip";
+        private static readonly TimeSpan OBSInitializeTimeout = TimeSpan.FromSeconds(45);
         private const uint OBS_SOURCE_FLAG_FORCE_MONO = 1u << 1; // from obs.h
 
         // OBS output stop codes (from libobs/obs-defs.h), passed as "code" in the output "stop" signal
@@ -362,6 +363,21 @@ namespace Segra.Backend.Recorder
                 return;
             }
 
+            string[] missingVisualCppRuntimeDlls = NativeDependencyService.GetMissingVisualCppRuntimeDlls();
+            if (missingVisualCppRuntimeDlls.Length > 0)
+            {
+                string missingDlls = string.Join(", ", missingVisualCppRuntimeDlls);
+                Log.Error($"Missing Microsoft Visual C++ runtime dependency for OBS: {missingDlls}");
+                await MessageService.ShowModal(
+                    "Recorder Error",
+                    $"The recorder needs the Microsoft Visual C++ 2015-2022 x64 Redistributable. Missing: {missingDlls}. Install it from Microsoft, then restart Segra.",
+                    "error",
+                    "Missing Visual C++ runtime"
+                );
+                AppState.Instance.HasLoadedObs = true;
+                return;
+            }
+
             // Probe NVENC capabilities in the background (cached in AppData until the GPU,
             // driver or OBS bundle changes) so encoder setup can disable unsupported features
             // like b-frames. The test exe ships with the OBS bundle, so this must run after
@@ -374,38 +390,26 @@ namespace Segra.Backend.Recorder
             // Start the log queue processor before setting the log handler
             _ = Task.Run(ProcessLogQueueAsync);
 
+            Task<ObsContext> initializeTask = Task.Run(InitializeObsContext);
+            Task timeoutTask = Task.Delay(OBSInitializeTimeout);
+
             try
             {
-                // Initialize OBS using ObsKit.NET fluent API
-                _obsContext = Obs.Initialize(config =>
+                Task completedTask = await Task.WhenAny(initializeTask, timeoutTask);
+                if (completedTask != initializeTask)
                 {
-                    config
-                        .WithLocale("en-US")
-                        .WithDataPath("./data/libobs/")
-                        .WithModulePath("./obs-plugins/64bit/", "./data/obs-plugins/%module%/")
-                        .WithVideo(v => v
-                            .Resolution(1920, 1080)
-                            .Fps(60))
-                        .WithAudio(a => a
-                            .WithSampleRate(44100)
-                            .WithSpeakers(SpeakerLayout.Stereo))
-                        .WithLogging((level, message) =>
-                        {
-                            try
-                            {
-                                // Queue the message for async processing - this is non-blocking
-                                _logChannel.Writer.TryWrite(((int)level, message));
-                            }
-                            catch
-                            {
-                                // Silently ignore marshaling errors to never block OBS
-                            }
-                        });
-                });
+                    Log.Error($"OBS initialization timed out after {OBSInitializeTimeout.TotalSeconds} seconds");
+                    await MessageService.ShowModal(
+                        "Recorder Error",
+                        "Starting the recorder took too long. This can happen in Windows Sandbox or on systems missing graphics/audio components. Please restart Segra and check the logs if it keeps happening.",
+                        "error",
+                        "Recorder startup timed out"
+                    );
+                    AppState.Instance.HasLoadedObs = true;
+                    return;
+                }
 
-                // Disable auto-dispose for manual resource management
-                Obs.AutoDispose = false;
-
+                _obsContext = await initializeTask;
                 InstalledOBSVersion = Obs.Version;
                 Log.Information("OBS version: " + InstalledOBSVersion);
 
@@ -431,6 +435,39 @@ namespace Segra.Backend.Recorder
                 );
                 AppState.Instance.HasLoadedObs = true;
             }
+        }
+
+        private static ObsContext InitializeObsContext()
+        {
+            Log.Information("Initializing OBS context");
+
+            ObsContext context = Obs.Initialize(config =>
+            {
+                config
+                    .WithLocale("en-US")
+                    .WithDataPath("./data/libobs/")
+                    .WithModulePath("./obs-plugins/64bit/", "./data/obs-plugins/%module%/")
+                    .WithVideo(v => v
+                        .Resolution(1920, 1080)
+                        .Fps(60))
+                    .WithAudio(a => a
+                        .WithSampleRate(44100)
+                        .WithSpeakers(SpeakerLayout.Stereo))
+                    .WithLogging((level, message) =>
+                    {
+                        try
+                        {
+                            _logChannel.Writer.TryWrite(((int)level, message));
+                        }
+                        catch
+                        {
+                            // Silently ignore marshaling errors to never block OBS.
+                        }
+                    });
+            });
+
+            Obs.AutoDispose = false;
+            return context;
         }
 
         public static void Shutdown()

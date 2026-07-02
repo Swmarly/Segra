@@ -116,6 +116,26 @@ jobs:
         shell: pwsh
         run: dotnet publish -c Release --self-contained -r win-x64 -o publish --no-restore -p:Version=${{ steps.version.outputs.version }}
 
+      - name: Bundle Visual C++ runtime DLLs
+        shell: pwsh
+        run: |
+          $dlls = @(
+            "vcruntime140.dll",
+            "vcruntime140_1.dll",
+            "msvcp140.dll",
+            "concrt140.dll"
+          )
+
+          foreach ($dll in $dlls) {
+            $source = Join-Path $env:WINDIR "System32\$dll"
+            if (-not (Test-Path $source)) {
+              throw "Required Visual C++ runtime DLL was not found on the runner: $source"
+            }
+
+            Copy-Item $source -Destination "./publish/$dll" -Force
+            Write-Host "Bundled $dll"
+          }
+
       - name: Package installer and update feed
         shell: pwsh
         run: |
