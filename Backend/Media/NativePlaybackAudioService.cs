@@ -11,10 +11,13 @@ namespace Segra.Backend.Media
         private static MediaFoundationReader? _reader;
         private static IWavePlayer? _output;
         private static VolumeSampleProvider? _volumeProvider;
+        private static BufferedWaveProvider? _pcmBuffer;
+        private static IWavePlayer? _pcmOutput;
         private static string? _currentPath;
         private static double _lastRequestedTime;
         private static DateTime _lastCorrectionUtc = DateTime.MinValue;
         private const int OutputLatencyMs = 150;
+        private const int PcmOutputLatencyMs = 80;
         private const double DriftToleranceSeconds = 0.45;
         private static readonly TimeSpan MinCorrectionInterval = TimeSpan.FromSeconds(1);
 
@@ -36,6 +39,8 @@ namespace Segra.Backend.Media
                         StopLocked();
                         return;
                     }
+
+                    StopPcmStreamLocked();
 
                     if (!string.Equals(_currentPath, filePath, StringComparison.OrdinalIgnoreCase))
                     {
@@ -111,6 +116,74 @@ namespace Segra.Backend.Media
             }
         }
 
+        public static void StartPcmStream(int sampleRate, int channels)
+        {
+            lock (Lock)
+            {
+                try
+                {
+                    StopFilePlaybackLocked();
+
+                    if (_pcmBuffer != null && _pcmOutput != null)
+                        return;
+
+                    var waveFormat = WaveFormat.CreateIeeeFloatWaveFormat(sampleRate, channels);
+                    _pcmBuffer = new BufferedWaveProvider(waveFormat)
+                    {
+                        BufferDuration = TimeSpan.FromSeconds(1),
+                        DiscardOnBufferOverflow = true
+                    };
+                    _pcmOutput = new WasapiOut(AudioClientShareMode.Shared, true, PcmOutputLatencyMs);
+                    _pcmOutput.Init(_pcmBuffer);
+                    _pcmOutput.Play();
+                }
+                catch (Exception ex)
+                {
+                    Log.Warning(ex, "Native PCM playback start failed");
+                    StopPcmStreamLocked();
+                }
+            }
+        }
+
+        public static void PushPcm(string? base64Pcm)
+        {
+            if (string.IsNullOrWhiteSpace(base64Pcm))
+                return;
+
+            lock (Lock)
+            {
+                try
+                {
+                    if (_pcmBuffer == null)
+                        return;
+
+                    byte[] bytes = Convert.FromBase64String(base64Pcm);
+                    _pcmBuffer.AddSamples(bytes, 0, bytes.Length);
+                }
+                catch (Exception ex)
+                {
+                    Log.Warning(ex, "Native PCM playback push failed");
+                    StopPcmStreamLocked();
+                }
+            }
+        }
+
+        public static void StopPcmStream()
+        {
+            lock (Lock)
+            {
+                StopPcmStreamLocked();
+            }
+        }
+
+        public static void StopFilePlayback()
+        {
+            lock (Lock)
+            {
+                StopFilePlaybackLocked();
+            }
+        }
+
         public static void Stop()
         {
             lock (Lock)
@@ -127,7 +200,7 @@ namespace Segra.Backend.Media
             _reader.CurrentTime = TimeSpan.FromSeconds(clamped);
         }
 
-        private static void StopLocked()
+        private static void StopFilePlaybackLocked()
         {
             try
             {
@@ -146,6 +219,28 @@ namespace Segra.Backend.Media
             _currentPath = null;
             _lastRequestedTime = 0;
             _lastCorrectionUtc = DateTime.MinValue;
+        }
+
+        private static void StopPcmStreamLocked()
+        {
+            try
+            {
+                _pcmOutput?.Stop();
+            }
+            catch
+            {
+                // ignore
+            }
+
+            _pcmOutput?.Dispose();
+            _pcmOutput = null;
+            _pcmBuffer = null;
+        }
+
+        private static void StopLocked()
+        {
+            StopFilePlaybackLocked();
+            StopPcmStreamLocked();
         }
     }
 }

@@ -457,15 +457,6 @@ export default function VideoComponent({ video }: { video: Content }) {
       const muted = overrides?.muted ?? state.isMuted;
 
       if (audioTracks.isMultiTrack) {
-        sendMessageToBackend('SyncNativePlaybackAudio', {
-          FilePath: state.filePath,
-          Time: time,
-          Playing: false,
-          Volume: 0,
-          Muted: true,
-          PlaybackRate: vid.playbackRate || state.playbackRate || 1,
-          ForceSeek: overrides?.forceSeek ?? false,
-        });
         return;
       }
 
@@ -737,18 +728,9 @@ export default function VideoComponent({ video }: { video: Content }) {
 
   useEffect(() => {
     if (audioTracks.isMultiTrack) {
-      syncNativePlaybackAudio(true);
+      sendMessageToBackend('StopNativeFilePlaybackAudio');
     }
-  }, [
-    audioTracks.isMultiTrack,
-    audioTracks.masterMuted,
-    audioTracks.masterVolume,
-    audioTracks.mutedTracks,
-    audioTracks.soloTrack,
-    audioTracks.volumes,
-    segments,
-    syncNativePlaybackAudio,
-  ]);
+  }, [audioTracks.isMultiTrack]);
 
   // Clean up overrides when multi-track is deactivated
   useEffect(() => {

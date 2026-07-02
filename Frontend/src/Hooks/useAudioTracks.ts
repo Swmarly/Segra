@@ -2,6 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState, useCallback } from 'react
 import { createFile, MP4BoxBuffer } from 'mp4box';
 import type { ISOFile } from 'mp4box';
 import { Content } from '../Models/types';
+import { sendMessageToBackend } from '../Utils/MessageUtils';
 
 export interface AudioTrackInfo {
   index: number;
@@ -47,6 +48,7 @@ interface AudioTrackData {
 const LOOKAHEAD_SECONDS = 2;
 const CHUNK_SIZE = 2 * 1024 * 1024;
 const SAMPLES_PER_BATCH = 100;
+const PCM_BUFFER_SIZE = 4096;
 
 function makeMp4BoxBuffer(data: ArrayBuffer, fileStart: number): MP4BoxBuffer {
   return MP4BoxBuffer.fromArrayBuffer(data, fileStart);
@@ -90,6 +92,15 @@ function seekCursor(td: AudioTrackData, timeSec: number): number {
   return Math.max(0, lo - 1);
 }
 
+function bytesToBase64(bytes: Uint8Array): string {
+  const chunkSize = 0x8000;
+  let binary = '';
+  for (let i = 0; i < bytes.length; i += chunkSize) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + chunkSize));
+  }
+  return btoa(binary);
+}
+
 export function useAudioTracks(
   videoRef: React.RefObject<HTMLVideoElement | null>,
   video: Content,
@@ -104,8 +115,9 @@ export function useAudioTracks(
 
   const audioCtxRef = useRef<AudioContext | null>(null);
   const masterGainRef = useRef<GainNode | null>(null);
-  const outputDestinationRef = useRef<MediaStreamAudioDestinationNode | null>(null);
-  const outputElementRef = useRef<HTMLAudioElement | null>(null);
+  const pcmProcessorRef = useRef<ScriptProcessorNode | null>(null);
+  const silentGainRef = useRef<GainNode | null>(null);
+  const pcmStreamStartedRef = useRef(false);
   const trackDataRef = useRef<Map<number, AudioTrackData>>(new Map());
 
   const fetchUrlRef = useRef<string>('');
@@ -349,6 +361,17 @@ export function useAudioTracks(
 
       generationRef.current += 1;
       stopAllSources();
+      pcmStreamStartedRef.current = false;
+      sendMessageToBackend('StopNativePlaybackPcm');
+
+      const vid = videoRef.current;
+      if (vid && !vid.paused && !vid.ended) {
+        sendMessageToBackend('StartNativePlaybackPcm', {
+          SampleRate: ctx.sampleRate,
+          Channels: 2,
+        });
+        pcmStreamStartedRef.current = true;
+      }
 
       for (const td of trackDataRef.current.values()) {
         try {
@@ -365,7 +388,7 @@ export function useAudioTracks(
 
       pumpDecoders();
     },
-    [pumpDecoders, stopAllSources],
+    [pumpDecoders, stopAllSources, videoRef],
   );
 
   useEffect(() => {
@@ -404,17 +427,40 @@ export function useAudioTracks(
       audioCtxRef.current = ctx;
       const master = ctx.createGain();
       master.gain.value = 1;
-      const outputDestination = ctx.createMediaStreamDestination();
-      master.connect(outputDestination);
-      outputDestinationRef.current = outputDestination;
+      const pcmProcessor = ctx.createScriptProcessor(PCM_BUFFER_SIZE, 2, 2);
+      const silentGain = ctx.createGain();
+      silentGain.gain.value = 0;
+      pcmProcessor.onaudioprocess = (event) => {
+        const vid = videoRef.current;
+        if (!vid || vid.paused || vid.ended || masterMutedRef.current) return;
 
-      const outputElement = document.createElement('audio');
-      outputElement.autoplay = true;
-      outputElement.controls = false;
-      outputElement.style.display = 'none';
-      outputElement.srcObject = outputDestination.stream;
-      document.body.appendChild(outputElement);
-      outputElementRef.current = outputElement;
+        if (!pcmStreamStartedRef.current) {
+          sendMessageToBackend('StartNativePlaybackPcm', {
+            SampleRate: ctx.sampleRate,
+            Channels: 2,
+          });
+          pcmStreamStartedRef.current = true;
+        }
+
+        const input = event.inputBuffer;
+        const frameCount = input.length;
+        const left = input.getChannelData(0);
+        const right = input.numberOfChannels > 1 ? input.getChannelData(1) : left;
+        const interleaved = new Float32Array(frameCount * 2);
+        for (let i = 0, j = 0; i < frameCount; i++, j += 2) {
+          interleaved[j] = left[i];
+          interleaved[j + 1] = right[i];
+        }
+
+        sendMessageToBackend('NativePlaybackAudioPcm', {
+          Pcm: bytesToBase64(new Uint8Array(interleaved.buffer)),
+        });
+      };
+      master.connect(pcmProcessor);
+      pcmProcessor.connect(silentGain);
+      silentGain.connect(ctx.destination);
+      pcmProcessorRef.current = pcmProcessor;
+      silentGainRef.current = silentGain;
       masterGainRef.current = master;
 
       const url = `http://localhost:2222/api/content?input=${encodeURIComponent(video.filePath)}`;
@@ -670,27 +716,28 @@ export function useAudioTracks(
       }
       masterGainRef.current = null;
 
-      const outputElement = outputElementRef.current;
-      if (outputElement) {
+      const pcmProcessor = pcmProcessorRef.current;
+      if (pcmProcessor) {
         try {
-          outputElement.pause();
-          outputElement.srcObject = null;
-          outputElement.remove();
+          pcmProcessor.onaudioprocess = null;
+          pcmProcessor.disconnect();
         } catch {
           // ignore
         }
       }
-      outputElementRef.current = null;
+      pcmProcessorRef.current = null;
 
-      const outputDestination = outputDestinationRef.current;
-      if (outputDestination) {
+      const silentGain = silentGainRef.current;
+      if (silentGain) {
         try {
-          outputDestination.disconnect();
+          silentGain.disconnect();
         } catch {
           // ignore
         }
       }
-      outputDestinationRef.current = null;
+      silentGainRef.current = null;
+      pcmStreamStartedRef.current = false;
+      sendMessageToBackend('StopNativePlaybackPcm');
 
       const ctx = audioCtxRef.current;
       if (ctx) ctx.close().catch(() => {});
@@ -726,15 +773,21 @@ export function useAudioTracks(
         }
       }
       try {
-        await outputElementRef.current?.play();
+        sendMessageToBackend('StartNativePlaybackPcm', {
+          SampleRate: ctx.sampleRate,
+          Channels: 2,
+        });
+        pcmStreamStartedRef.current = true;
       } catch {
-        // ignore; the AudioContext path will retry on the next play gesture
+        // ignore; the PCM path will retry from the audio processor
       }
       resyncTo(vid.currentTime, vid.playbackRate);
     };
 
     const onPause = () => {
       stopAllSources();
+      pcmStreamStartedRef.current = false;
+      sendMessageToBackend('StopNativePlaybackPcm');
     };
 
     const onSeeked = () => {
@@ -811,9 +864,23 @@ export function useAudioTracks(
     (muted: boolean) => {
       masterMutedRef.current = muted;
       setMasterMutedState(muted);
+      if (muted) {
+        pcmStreamStartedRef.current = false;
+        sendMessageToBackend('StopNativePlaybackPcm');
+      } else {
+        const ctx = audioCtxRef.current;
+        const vid = videoRef.current;
+        if (ctx && vid && !vid.paused && !vid.ended) {
+          sendMessageToBackend('StartNativePlaybackPcm', {
+            SampleRate: ctx.sampleRate,
+            Channels: 2,
+          });
+          pcmStreamStartedRef.current = true;
+        }
+      }
       applyMuting();
     },
-    [applyMuting],
+    [applyMuting, videoRef],
   );
 
   const setMasterVolume = useCallback(

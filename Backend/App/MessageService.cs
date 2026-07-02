@@ -39,7 +39,10 @@ namespace Segra.Backend.App
                 return;
             }
 
-            Log.Information("Websocket message received: " + GeneralUtils.RedactSensitiveInfo(message));
+            if (!message.Contains("\"Method\":\"NativePlaybackAudioPcm\"", StringComparison.Ordinal))
+            {
+                Log.Information("Websocket message received: " + GeneralUtils.RedactSensitiveInfo(message));
+            }
 
             try
             {
@@ -107,6 +110,34 @@ namespace Segra.Backend.App
                                     playbackRate,
                                     forceSeek);
                             }
+                            break;
+                        case "StartNativePlaybackPcm":
+                            if (root.TryGetProperty("Parameters", out var nativePcmStartParams))
+                            {
+                                int sampleRate = nativePcmStartParams.TryGetProperty("SampleRate", out var sampleRateEl)
+                                    ? sampleRateEl.GetInt32()
+                                    : 48000;
+                                int channels = nativePcmStartParams.TryGetProperty("Channels", out var channelsEl)
+                                    ? channelsEl.GetInt32()
+                                    : 2;
+
+                                NativePlaybackAudioService.StartPcmStream(sampleRate, channels);
+                            }
+                            break;
+                        case "NativePlaybackAudioPcm":
+                            if (root.TryGetProperty("Parameters", out var nativePcmParams))
+                            {
+                                string? pcm = nativePcmParams.TryGetProperty("Pcm", out var pcmEl)
+                                    ? pcmEl.GetString()
+                                    : null;
+                                NativePlaybackAudioService.PushPcm(pcm);
+                            }
+                            break;
+                        case "StopNativePlaybackPcm":
+                            NativePlaybackAudioService.StopPcmStream();
+                            break;
+                        case "StopNativeFilePlaybackAudio":
+                            NativePlaybackAudioService.StopFilePlayback();
                             break;
                         case "Login":
                             root.TryGetProperty("Parameters", out JsonElement loginParameterElement);
