@@ -12,8 +12,8 @@ namespace Segra.Backend.App
     public static class UpdateService
     {
         public static UpdateInfo? LatestUpdateInfo { get; private set; } = null;
-        public static GithubSource Source = new("https://github.com/Segergren/Segra", null, false);
-        public static GithubSource BetaSource = new("https://github.com/Segergren/Segra", null, true);
+        public static GithubSource Source = new("https://github.com/Swmarly/Segra", null, false);
+        public static GithubSource BetaSource = new("https://github.com/Swmarly/Segra", null, true);
         public static UpdateManager UpdateManager { get; private set; } = new(Source);
 
         // Serializes Velopack operations that share the on-disk .velopack_lock.
@@ -298,7 +298,7 @@ namespace Segra.Backend.App
                 httpClient.DefaultRequestHeaders.UserAgent.Add(new ProductInfoHeaderValue("Segra", currentVersion.ToString()));
 
                 // Fetch releases from GitHub API
-                var response = await httpClient.GetAsync($"https://api.github.com/repos/Segergren/Segra/releases");
+                var response = await httpClient.GetAsync($"https://api.github.com/repos/Swmarly/Segra/releases");
                 response.EnsureSuccessStatusCode();
 
                 var content = await response.Content.ReadAsStringAsync();

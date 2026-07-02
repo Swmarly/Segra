@@ -106,7 +106,7 @@ interface ReleaseNotesModalProps {
   filterVersion: string | null;
 }
 
-const GITHUB_REPO_URL = 'https://github.com/Segergren/Segra';
+const GITHUB_REPO_URL = 'https://github.com/Swmarly/Segra';
 
 function linkifyIssueReferences(text: string): string {
   return text.replace(/(?<!\[)#(\d+)/g, `[#$1](${GITHUB_REPO_URL}/issues/$1)`);

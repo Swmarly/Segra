@@ -1,0 +1,126 @@
+name: Friend Release
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Optional version, for example 0.1.42. Leave empty to use 0.1.<run number>."
+        required: false
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: friend-release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: windows-2025-vs2026
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          submodules: recursive
+
+      - name: Choose version
+        id: version
+        shell: pwsh
+        run: |
+          $manualVersion = "${{ github.event.inputs.version }}"
+          if ([string]::IsNullOrWhiteSpace($manualVersion)) {
+            $version = "0.1.${{ github.run_number }}"
+          } else {
+            $version = $manualVersion.Trim()
+          }
+
+          if ($version -notmatch '^\d+\.\d+\.\d+(-[A-Za-z0-9.-]+)?$') {
+            throw "Invalid version '$version'. Use semver like 0.1.42 or 0.2.0-beta.1."
+          }
+
+          "version=$version" >> $env:GITHUB_OUTPUT
+          "tag=v$version" >> $env:GITHUB_OUTPUT
+          Write-Host "Version: $version"
+
+      - name: Install Velopack CLI
+        shell: pwsh
+        run: dotnet tool install -g vpk --version 1.2.0
+
+      - name: Restore backend
+        shell: pwsh
+        run: dotnet restore -r win-x64
+
+      - name: Stamp frontend version
+        working-directory: ./Frontend
+        shell: pwsh
+        run: |
+          $packageJson = Get-Content package.json -Raw | ConvertFrom-Json
+          $packageJson.version = "${{ steps.version.outputs.version }}"
+          $packageJson | ConvertTo-Json -Depth 100 | Set-Content package.json -NoNewline
+
+      - name: Build frontend
+        shell: pwsh
+        run: |
+          Push-Location Frontend
+          npm ci
+          npm run build
+          Pop-Location
+
+      - name: Copy frontend into embedded resources
+        shell: pwsh
+        run: |
+          $destination = "./Resources/wwwroot"
+          if (-not (Test-Path $destination)) {
+            New-Item -ItemType Directory -Path $destination -Force | Out-Null
+          }
+
+          Remove-Item -Path "$destination\*" -Recurse -Force -ErrorAction SilentlyContinue
+          Copy-Item -Path "./Frontend/dist/*" -Destination $destination -Recurse -Force
+
+      - name: Publish app
+        shell: pwsh
+        run: dotnet publish -c Release --self-contained -r win-x64 -o publish --no-restore -p:Version=${{ steps.version.outputs.version }}
+
+      - name: Package installer and update feed
+        shell: pwsh
+        run: |
+          vpk pack `
+            -u Segra `
+            -v ${{ steps.version.outputs.version }} `
+            -p ./publish `
+            -e Segra.exe `
+            -o ./output `
+            --packTitle "Segra" `
+            --noPortable `
+            -i ./Resources/icon.ico `
+            -s ./Resources/splash.png `
+            --splashProgressColor "#fecb00" `
+            --framework webview2
+
+      - name: Create tag
+        shell: pwsh
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag ${{ steps.version.outputs.tag }}
+          git push origin ${{ steps.version.outputs.tag }}
+
+      - name: Create GitHub release
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: ${{ steps.version.outputs.tag }}
+          name: "Segra ${{ steps.version.outputs.tag }}"
+          prerelease: false
+          generate_release_notes: true
+          files: |
+            ./output/Segra-win-Setup.exe
+            ./output/RELEASES
+            ./output/releases.win.json
+            ./output/assets.win.json
+            ./output/Segra-${{ steps.version.outputs.version }}-full.nupkg

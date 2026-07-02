@@ -34,12 +34,19 @@
 ---
 
 ## 🛠 Installation
-1. **Download**: Get `Segra-win-Setup.exe` from [[latest release](https://github.com/Segergren/Segra/releases/latest)].  
+1. **Download**: Get `Segra-win-Setup.exe` from [[latest release](https://github.com/Swmarly/Segra/releases/latest)].  
 2. **Install**: Run the setup.  
 3. **Configure**:  
    - Set recording directory and video quality.  
    - Assign hotkeys for clipping/uploading.  
    - Connect your Segra.tv account.  
+
+## 🚀 Friend Releases
+This repository includes a GitHub Actions workflow named **Friend Release**.
+Every push to `main` builds a Windows installer, publishes a GitHub Release, and uploads the Velopack update feed files used by the in-app updater.
+
+To ship an update, push to `main` and share the latest `Segra-win-Setup.exe` from [releases](https://github.com/Swmarly/Segra/releases/latest).
+Friends only need to install it once; later releases are detected and installed from inside the app.
 
 ## 🔄 Uninstallation
 1. Open `Windows Settings`
@@ -81,11 +88,11 @@ See our [Privacy Policy](https://segra.tv/privacy).
 
 ## Star History
 
-<a href="https://www.star-history.com/#Segergren/Segra&Date">
+<a href="https://www.star-history.com/#Swmarly/Segra&Date">
  <picture>
-   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=Segergren/Segra&type=Date&theme=dark" />
-   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=Segergren/Segra&type=Date" />
-   <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=Segergren/Segra&type=Date" />
+   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=Swmarly/Segra&type=Date&theme=dark" />
+   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=Swmarly/Segra&type=Date" />
+   <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=Swmarly/Segra&type=Date" />
  </picture>
 </a>
 
