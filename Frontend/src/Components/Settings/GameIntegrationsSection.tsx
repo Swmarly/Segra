@@ -40,7 +40,7 @@ const GAME_INTEGRATIONS: GameIntegration[] = [
     id: 'apex-legends',
     name: 'Apex Legends',
     settingsKey: 'apexLegends',
-    bookmarks: ['Knocks', 'Eliminations', 'Assists', 'Champion'],
+    bookmarks: ['Knocks', 'Eliminations', 'Champion'],
     isBeta: true,
     warningText: 'OCR based. Works best with English UI and may need crop/threshold tuning.',
     backgroundImage:
