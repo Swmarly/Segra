@@ -453,20 +453,20 @@ export default function VideoComponent({ video }: { video: Content }) {
 
       const state = nativeAudioStateRef.current;
       const time = overrides?.time ?? vid.currentTime;
-      let volume = overrides?.volume ?? state.volume;
-      let muted = overrides?.muted ?? state.isMuted;
+      const volume = overrides?.volume ?? state.volume;
+      const muted = overrides?.muted ?? state.isMuted;
 
       if (audioTracks.isMultiTrack) {
-        const activeSeg = segmentsRef.current.find((s) => time >= s.startTime && time <= s.endTime);
-        const effectiveMuted = new Set(activeSeg?.mutedAudioTracks ?? [...audioTracks.mutedTracks]);
-        const effectiveVolumes = activeSeg?.audioTrackVolumes ?? audioTracks.volumes;
-        const fullMixMuted =
-          audioTracks.soloTrack !== null ? audioTracks.soloTrack !== 0 : effectiveMuted.has(0);
-
-        const masterVolume = overrides?.volume ?? audioTracks.masterVolume;
-        const masterMuted = overrides?.muted ?? audioTracks.masterMuted;
-        volume = masterVolume * (effectiveVolumes[0] ?? 1);
-        muted = masterMuted || fullMixMuted || volume <= 0;
+        sendMessageToBackend('SyncNativePlaybackAudio', {
+          FilePath: state.filePath,
+          Time: time,
+          Playing: false,
+          Volume: 0,
+          Muted: true,
+          PlaybackRate: vid.playbackRate || state.playbackRate || 1,
+          ForceSeek: overrides?.forceSeek ?? false,
+        });
+        return;
       }
 
       const requestedPlaying = overrides?.playing ?? (!vid.paused && !vid.ended);
@@ -484,14 +484,7 @@ export default function VideoComponent({ video }: { video: Content }) {
         ForceSeek: overrides?.forceSeek ?? false,
       });
     },
-    [
-      audioTracks.isMultiTrack,
-      audioTracks.masterMuted,
-      audioTracks.masterVolume,
-      audioTracks.mutedTracks,
-      audioTracks.soloTrack,
-      audioTracks.volumes,
-    ],
+    [audioTracks.isMultiTrack],
   );
 
   useEffect(() => {
