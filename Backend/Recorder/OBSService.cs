@@ -29,6 +29,8 @@ namespace Segra.Backend.Recorder
 {
     public static partial class OBSService
     {
+        private const string BundledOBSVersion = "32.1.2";
+        private const string BundledOBSZipRelativePath = @"Obs\OBS 32.1.2.zip";
         private const uint OBS_SOURCE_FLAG_FORCE_MONO = 1u << 1; // from obs.h
 
         // OBS output stop codes (from libobs/obs-defs.h), passed as "code" in the output "stop" signal
@@ -2562,139 +2564,185 @@ namespace Segra.Backend.Recorder
             // Download the selected or latest version
             if (versionToDownload != null)
             {
-                Log.Information($"Using OBS version: {versionToDownload.Version}");
-                string metadataUrl = versionToDownload.Url; // This is the GitHub metadata URL
-
-                using (var httpClient = new HttpClient())
+                try
                 {
-                    httpClient.Timeout = Timeout.InfiniteTimeSpan;
+                    Log.Information($"Using OBS version: {versionToDownload.Version}");
+                    string metadataUrl = versionToDownload.Url; // This is the GitHub metadata URL
 
-                    // First, fetch the metadata from GitHub
-                    httpClient.DefaultRequestHeaders.Add("User-Agent", "Segra");
-                    httpClient.DefaultRequestHeaders.Add("Accept", "application/vnd.github.v3.json");
-
-                    Log.Information($"Fetching metadata for OBS version {versionToDownload.Version} from {metadataUrl}");
-                    var response = await httpClient.GetAsync(metadataUrl);
-
-                    if (!response.IsSuccessStatusCode)
+                    using (var httpClient = new HttpClient())
                     {
-                        Log.Error($"Failed to fetch metadata from {metadataUrl}. Status: {response.StatusCode}");
-                        throw new Exception($"Failed to fetch file metadata: {response.ReasonPhrase}");
-                    }
+                        httpClient.Timeout = Timeout.InfiniteTimeSpan;
 
-                    var jsonResponse = await response.Content.ReadAsStringAsync();
-                    var metadata = System.Text.Json.JsonSerializer.Deserialize<GitHubFileMetadata>(jsonResponse);
+                        // First, fetch the metadata from GitHub
+                        httpClient.DefaultRequestHeaders.Add("User-Agent", "Segra");
+                        httpClient.DefaultRequestHeaders.Add("Accept", "application/vnd.github.v3.json");
 
-                    if (metadata?.DownloadUrl == null)
-                    {
-                        Log.Error("Download URL not found in the API response.");
-                        throw new Exception("Invalid API response: Missing download URL.");
-                    }
+                        Log.Information($"Fetching metadata for OBS version {versionToDownload.Version} from {metadataUrl}");
+                        var response = await httpClient.GetAsync(metadataUrl);
 
-                    string remoteHash = metadata.Sha;
-                    string actualDownloadUrl = metadata.DownloadUrl;
-
-                    // Check if we already have the file with the correct hash
-                    if (!isUpdate && File.Exists(zipPath) && File.Exists(localHashPath))
-                    {
-                        string localHash = await File.ReadAllTextAsync(localHashPath);
-                        if (localHash == remoteHash)
+                        if (!response.IsSuccessStatusCode)
                         {
-                            Log.Information("Found existing obs.zip with matching hash. Skipping download.");
-                            needsDownload = false;
+                            Log.Error($"Failed to fetch metadata from {metadataUrl}. Status: {response.StatusCode}");
+                            throw new Exception($"Failed to fetch file metadata: {response.ReasonPhrase}");
                         }
-                        else
+
+                        var jsonResponse = await response.Content.ReadAsStringAsync();
+                        var metadata = System.Text.Json.JsonSerializer.Deserialize<GitHubFileMetadata>(jsonResponse);
+
+                        if (metadata?.DownloadUrl == null)
                         {
-                            Log.Information("Found existing obs.zip but hash doesn't match. Downloading new version.");
-                            needsDownload = true;
+                            Log.Error("Download URL not found in the API response.");
+                            throw new Exception("Invalid API response: Missing download URL.");
                         }
-                    }
 
-                    // If this is an update or we need to download, proceed with download
-                    if (needsDownload)
-                    {
-                        Log.Information($"Downloading OBS version {versionToDownload.Version}");
+                        string remoteHash = metadata.Sha;
+                        string actualDownloadUrl = metadata.DownloadUrl;
 
-                        httpClient.DefaultRequestHeaders.Clear();
-
-                        // Download with progress reporting
-                        using var downloadResponse = await httpClient.GetAsync(actualDownloadUrl, HttpCompletionOption.ResponseHeadersRead);
-                        downloadResponse.EnsureSuccessStatusCode();
-
-                        var totalBytes = downloadResponse.Content.Headers.ContentLength ?? -1L;
-                        using var contentStream = await downloadResponse.Content.ReadAsStreamAsync();
-                        using var fileStream = new FileStream(zipPath, FileMode.Create, FileAccess.Write, FileShare.None, 8192, true);
-
-                        var buffer = new byte[8192];
-                        long totalBytesRead = 0;
-                        int bytesRead;
-                        int lastReportedProgress = -1;
-
-                        while ((bytesRead = await contentStream.ReadAsync(buffer, 0, buffer.Length)) > 0)
+                        // Check if we already have the file with the correct hash
+                        if (!isUpdate && File.Exists(zipPath) && File.Exists(localHashPath))
                         {
-                            await fileStream.WriteAsync(buffer, 0, bytesRead);
-                            totalBytesRead += bytesRead;
-
-                            if (totalBytes > 0)
+                            string localHash = await File.ReadAllTextAsync(localHashPath);
+                            if (localHash == remoteHash)
                             {
-                                int progress = (int)((totalBytesRead * 100) / totalBytes);
-                                // Only send update if progress changed (avoid flooding)
-                                if (progress != lastReportedProgress)
-                                {
-                                    lastReportedProgress = progress;
-                                    await SendFrontendMessage("ObsDownloadProgress", new { progress, status = "downloading" });
-                                }
+                                Log.Information("Found existing obs.zip with matching hash. Skipping download.");
+                                needsDownload = false;
+                            }
+                            else
+                            {
+                                Log.Information("Found existing obs.zip but hash doesn't match. Downloading new version.");
+                                needsDownload = true;
                             }
                         }
 
-                        // Save the hash for future reference
-                        await File.WriteAllTextAsync(localHashPath, remoteHash);
+                        // If this is an update or we need to download, proceed with download
+                        if (needsDownload)
+                        {
+                            Log.Information($"Downloading OBS version {versionToDownload.Version}");
 
-                        Log.Information("Download complete");
+                            httpClient.DefaultRequestHeaders.Clear();
+
+                            // Download with progress reporting
+                            using var downloadResponse = await httpClient.GetAsync(actualDownloadUrl, HttpCompletionOption.ResponseHeadersRead);
+                            downloadResponse.EnsureSuccessStatusCode();
+
+                            var totalBytes = downloadResponse.Content.Headers.ContentLength ?? -1L;
+                            using var contentStream = await downloadResponse.Content.ReadAsStreamAsync();
+                            using var fileStream = new FileStream(zipPath, FileMode.Create, FileAccess.Write, FileShare.None, 8192, true);
+
+                            var buffer = new byte[8192];
+                            long totalBytesRead = 0;
+                            int bytesRead;
+                            int lastReportedProgress = -1;
+
+                            while ((bytesRead = await contentStream.ReadAsync(buffer, 0, buffer.Length)) > 0)
+                            {
+                                await fileStream.WriteAsync(buffer, 0, bytesRead);
+                                totalBytesRead += bytesRead;
+
+                                if (totalBytes > 0)
+                                {
+                                    int progress = (int)((totalBytesRead * 100) / totalBytes);
+                                    // Only send update if progress changed (avoid flooding)
+                                    if (progress != lastReportedProgress)
+                                    {
+                                        lastReportedProgress = progress;
+                                        await SendFrontendMessage("ObsDownloadProgress", new { progress, status = "downloading" });
+                                    }
+                                }
+                            }
+
+                            // Save the hash for future reference
+                            await File.WriteAllTextAsync(localHashPath, remoteHash);
+
+                            Log.Information("Download complete");
+                        }
                     }
-                }
 
-                // This should already be deleted on reinstall, but just in case
-                if (Settings.Instance.PendingOBSUpdate)
-                {
-                    string dataPath = Path.Combine(currentDirectory, "data");
-                    if (Directory.Exists(dataPath))
-                    {
-                        Directory.Delete(dataPath, true);
-                    }
-
-                    string obsPluginsPath = Path.Combine(currentDirectory, "obs-plugins");
-                    if (Directory.Exists(obsPluginsPath))
-                    {
-                        Directory.Delete(obsPluginsPath, true);
-                    }
-                }
-
-                try
-                {
-                    ZipFile.ExtractToDirectory(zipPath, currentDirectory, true);
-
+                    // This should already be deleted on reinstall, but just in case
                     if (Settings.Instance.PendingOBSUpdate)
                     {
-                        await ShowModal("OBS Update", $"OBS update to {versionToDownload.Version} applied successfully.");
-                        Settings.Instance.PendingOBSUpdate = false;
-                        SettingsService.SaveSettings();
+                        string dataPath = Path.Combine(currentDirectory, "data");
+                        if (Directory.Exists(dataPath))
+                        {
+                            Directory.Delete(dataPath, true);
+                        }
+
+                        string obsPluginsPath = Path.Combine(currentDirectory, "obs-plugins");
+                        if (Directory.Exists(obsPluginsPath))
+                        {
+                            Directory.Delete(obsPluginsPath, true);
+                        }
                     }
+
+                    try
+                    {
+                        ZipFile.ExtractToDirectory(zipPath, currentDirectory, true);
+
+                        if (Settings.Instance.PendingOBSUpdate)
+                        {
+                            await ShowModal("OBS Update", $"OBS update to {versionToDownload.Version} applied successfully.");
+                            Settings.Instance.PendingOBSUpdate = false;
+                            SettingsService.SaveSettings();
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        Log.Error($"Failed to extract OBS: {ex.Message}");
+                        if (Settings.Instance.PendingOBSUpdate)
+                        {
+                            await ShowModal("OBS Update", "Failed to apply OBS update. Please try again.", "error");
+                        }
+                        throw;
+                    }
+
+                    Log.Information("OBS setup complete");
+                    return;
                 }
-                catch (Exception ex)
+                catch (Exception ex) when (!isUpdate)
                 {
-                    Log.Error($"Failed to extract OBS: {ex.Message}");
-                    await ShowModal("OBS Update", "Failed to apply OBS update. Please try again.", "error");
+                    Log.Warning(ex, "Remote OBS installation failed; trying bundled OBS fallback");
+                    if (await TryInstallBundledOBSAsync(currentDirectory))
+                    {
+                        return;
+                    }
+
                     throw;
                 }
+            }
 
-                Log.Information("OBS setup complete");
+            if (!isUpdate && await TryInstallBundledOBSAsync(currentDirectory))
+            {
                 return;
             }
 
             // Throw so InitializeAsync shows the recorder-error modal instead of failing silently.
             Log.Error("No OBS versions available to install the recorder (version server unreachable).");
             throw new InvalidOperationException("No OBS versions available to install the recorder.");
+        }
+
+        private static async Task<bool> TryInstallBundledOBSAsync(string currentDirectory)
+        {
+            string bundledZipPath = Path.Combine(currentDirectory, BundledOBSZipRelativePath);
+            if (!File.Exists(bundledZipPath))
+            {
+                Log.Warning($"Bundled OBS fallback not found at {bundledZipPath}");
+                return false;
+            }
+
+            try
+            {
+                Log.Information($"Installing bundled OBS {BundledOBSVersion} from {bundledZipPath}");
+                await SendFrontendMessage("ObsDownloadProgress", new { progress = 100, status = "bundled" });
+                ZipFile.ExtractToDirectory(bundledZipPath, currentDirectory, true);
+                InstalledOBSVersion = BundledOBSVersion;
+                Log.Information("Bundled OBS setup complete");
+                return true;
+            }
+            catch (Exception ex)
+            {
+                Log.Error(ex, $"Failed to install bundled OBS from {bundledZipPath}");
+                return false;
+            }
         }
 
         private class GitHubFileMetadata

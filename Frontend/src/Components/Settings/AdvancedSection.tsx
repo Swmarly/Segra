@@ -1,12 +1,13 @@
 import { useEffect, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
-import { FileText, Plane } from 'lucide-react';
+import { Download, FileText, Plane } from 'lucide-react';
 import { GithubIcon } from '../icons/BrandIcons';
 import DropdownSelect from '../DropdownSelect';
 import { Settings as SettingsType } from '../../Models/types';
 import { sendMessageToBackend } from '../../Utils/MessageUtils';
 import Button from '../Button';
 import { useAppState } from '../../Context/AppStateContext';
+import { useUpdate } from '../../Context/UpdateContext';
 
 interface AdvancedSectionProps {
   settings: SettingsType;
@@ -20,9 +21,12 @@ export default function AdvancedSection({
   openReleaseNotesModal,
 }: AdvancedSectionProps) {
   const appState = useAppState();
+  const { checkForUpdates, updateInfo } = useUpdate();
   const rowRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLSpanElement>(null);
   const [flyDistance, setFlyDistance] = useState(240);
+  const isUpdateReady = updateInfo?.status === 'ready' || updateInfo?.status === 'downloaded';
+  const isUpdating = appState.isCheckingForUpdates || updateInfo?.status === 'downloading';
 
   // Fly the plane from its spot to the right edge of the Airplane Mode row.
   useEffect(() => {
@@ -44,7 +48,7 @@ export default function AdvancedSection({
     <>
       <div className="bg-base-300 p-4 rounded-lg space-y-4 border border-custom">
         <div className="flex flex-col gap-3">
-          <div className="flex items-center">
+          <div className="flex flex-wrap items-center gap-2">
             <Button
               variant="primary"
               size="sm"
@@ -53,6 +57,24 @@ export default function AdvancedSection({
             >
               <GithubIcon size={16} aria-hidden="true" />
               <span className="inline-block">View Release Notes</span>
+            </Button>
+            <Button
+              variant={isUpdateReady ? 'success' : 'primary'}
+              size="sm"
+              className="w-40 bg-base-200 hover:bg-base-300"
+              disabled={isUpdating}
+              onClick={() =>
+                isUpdateReady ? sendMessageToBackend('ApplyUpdate') : checkForUpdates()
+              }
+            >
+              {isUpdating ? (
+                <span className="loading loading-spinner loading-xs" aria-hidden="true" />
+              ) : (
+                <Download size={16} aria-hidden="true" />
+              )}
+              <span className="inline-block">
+                {isUpdating ? 'Checking...' : isUpdateReady ? 'Install Update' : 'Check for Update'}
+              </span>
             </Button>
           </div>
         </div>
