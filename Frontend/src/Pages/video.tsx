@@ -102,9 +102,17 @@ function renderWaveformRegion(
   }
 }
 
-const PLAYBACK_SPEEDS = [0.25, 0.5, 1, 1.5, 2] as const;
+const MIN_PLAYBACK_RATE = 0.25;
+const MAX_PLAYBACK_RATE = 4;
+const PLAYBACK_RATE_STEP = 0.25;
+const PLAYBACK_SPEEDS = Array.from(
+  { length: Math.round((MAX_PLAYBACK_RATE - MIN_PLAYBACK_RATE) / PLAYBACK_RATE_STEP) + 1 },
+  (_, i) => MIN_PLAYBACK_RATE + i * PLAYBACK_RATE_STEP,
+);
 const NATIVE_AUDIO_SYNC_INTERVAL_MS = 500;
 const formatPlaybackRateLabel = (rate: number) => `${rate}x`;
+const clampPlaybackRate = (rate: number) =>
+  Math.max(MIN_PLAYBACK_RATE, Math.min(MAX_PLAYBACK_RATE, rate));
 
 const DEFAULT_ICON_MAPPING: Record<BookmarkType, LucideIcon> = {
   Manual: BookmarkIcon,
@@ -394,7 +402,8 @@ export default function VideoComponent({ video }: { video: Content }) {
   }, [clipOutputMode]);
   const [playbackRate, setPlaybackRate] = useState(() => {
     const saved = localStorage.getItem('segra-playbackRate');
-    return saved ? parseFloat(saved) : 1;
+    const parsed = saved ? parseFloat(saved) : 1;
+    return Number.isFinite(parsed) ? clampPlaybackRate(parsed) : 1;
   });
   const [controlsVisible, setControlsVisible] = useState(false);
   const controlsVisibleRef = useRef(false);
@@ -671,6 +680,20 @@ export default function VideoComponent({ video }: { video: Content }) {
         return;
       }
 
+      // Comma/period: step one frame backward/forward.
+      if ((e.key === ',' || e.code === 'Comma') && !isTyping) {
+        e.preventDefault();
+        showControlsTemporarily();
+        stepFrame(-1);
+        return;
+      }
+      if ((e.key === '.' || e.code === 'Period') && !isTyping) {
+        e.preventDefault();
+        showControlsTemporarily();
+        stepFrame(1);
+        return;
+      }
+
       // Volume up/down (5% steps, allow holding)
       if ((e.key === 'ArrowUp' || e.code === 'ArrowUp') && !isTyping) {
         e.preventDefault();
@@ -709,7 +732,7 @@ export default function VideoComponent({ video }: { video: Content }) {
       vid.removeEventListener('ratechange', onRateChange);
       window.removeEventListener('keydown', handleKeyDown, keyOptions as any);
     };
-  }, [volume, isMuted, audioTracks.isMultiTrack, syncNativePlaybackAudio]);
+  }, [volume, isMuted, settings.frameRate, audioTracks.isMultiTrack, syncNativePlaybackAudio]);
 
   // Per-segment audio override state, kept in refs for the rAF loop below.
   // `segmentsDirtyRef` is separate from the id ref because `null` is already
@@ -1018,6 +1041,25 @@ export default function VideoComponent({ video }: { video: Content }) {
       const newTime = videoRef.current.currentTime + seconds;
       videoRef.current.currentTime = Math.max(0, Math.min(newTime, videoRef.current.duration));
     }
+  };
+
+  const stepFrame = (direction: -1 | 1) => {
+    const vid = videoRef.current;
+    if (!vid) return;
+
+    if (!vid.paused) {
+      vid.pause();
+    }
+
+    const configuredFrameRate = Number(settings.frameRate);
+    const frameRate =
+      Number.isFinite(configuredFrameRate) && configuredFrameRate > 0 ? configuredFrameRate : 60;
+    const frameDuration = 1 / frameRate;
+    const maxTime = Number.isFinite(vid.duration) ? vid.duration : duration;
+    const nextTime = Math.max(0, Math.min(vid.currentTime + direction * frameDuration, maxTime));
+
+    vid.currentTime = nextTime;
+    setCurrentTime(nextTime);
   };
 
   const setPlayerVolume = (vol: number) => {
@@ -1744,7 +1786,7 @@ export default function VideoComponent({ video }: { video: Content }) {
   };
 
   const setPlaybackRateForPlayer = (rate: number) => {
-    const r = Math.max(0.25, Math.min(2, rate));
+    const r = clampPlaybackRate(rate);
     if (videoRef.current) videoRef.current.playbackRate = r;
     setPlaybackRate(r);
     localStorage.setItem('segra-playbackRate', r.toString());
@@ -1978,11 +2020,11 @@ export default function VideoComponent({ video }: { video: Content }) {
                       <span>{formatPlaybackRateLabel(playbackRate)}</span>
                     </button>
                     <div
-                      className={`absolute right-0 bottom-full z-50 mb-2 border rounded-md shadow-lg bg-black/90 border-base-400 transition-all duration-300 ${showSpeedMenu ? 'opacity-100 translate-y-0 pointer-events-auto' : 'opacity-0 translate-y-2 pointer-events-none'}`}
+                      className={`absolute right-0 bottom-full z-50 mb-2 max-h-64 overflow-y-auto border rounded-md shadow-lg bg-black/90 border-base-400 transition-all duration-300 ${showSpeedMenu ? 'opacity-100 translate-y-0 pointer-events-auto' : 'opacity-0 translate-y-2 pointer-events-none'}`}
                     >
-                      <div className="flex flex-col">
+                      <div className="grid grid-cols-2 min-w-28">
                         {PLAYBACK_SPEEDS.map((speed) => {
-                          const isActive = speed === playbackRate;
+                          const isActive = Math.abs(speed - playbackRate) < 0.001;
                           return (
                             <button
                               key={speed}
