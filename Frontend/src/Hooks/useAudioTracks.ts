@@ -118,6 +118,7 @@ export function useAudioTracks(
   const pcmProcessorRef = useRef<ScriptProcessorNode | null>(null);
   const silentGainRef = useRef<GainNode | null>(null);
   const pcmStreamStartedRef = useRef(false);
+  const pcmStreamFormatRef = useRef<{ sampleRate: number; channels: number } | null>(null);
   const trackDataRef = useRef<Map<number, AudioTrackData>>(new Map());
 
   const fetchUrlRef = useRef<string>('');
@@ -137,6 +138,31 @@ export function useAudioTracks(
   useLayoutEffect(() => {
     latestRef.current = { mutedTracks, soloTrack, volumes };
   });
+
+  const startNativePcmStream = useCallback((sampleRate: number, channels: number) => {
+    const current = pcmStreamFormatRef.current;
+    if (
+      pcmStreamStartedRef.current &&
+      current?.sampleRate === sampleRate &&
+      current.channels === channels
+    ) {
+      return;
+    }
+
+    sendMessageToBackend('StartNativePlaybackPcm', {
+      SampleRate: sampleRate,
+      Channels: channels,
+    });
+    pcmStreamStartedRef.current = true;
+    pcmStreamFormatRef.current = { sampleRate, channels };
+  }, []);
+
+  const stopNativePcmStream = useCallback(() => {
+    if (!pcmStreamStartedRef.current && pcmStreamFormatRef.current === null) return;
+    pcmStreamStartedRef.current = false;
+    pcmStreamFormatRef.current = null;
+    sendMessageToBackend('StopNativePlaybackPcm');
+  }, []);
 
   const applyMuting = useCallback(() => {
     const ctx = audioCtxRef.current;
@@ -361,16 +387,11 @@ export function useAudioTracks(
 
       generationRef.current += 1;
       stopAllSources();
-      pcmStreamStartedRef.current = false;
-      sendMessageToBackend('StopNativePlaybackPcm');
+      stopNativePcmStream();
 
       const vid = videoRef.current;
       if (vid && !vid.paused && !vid.ended) {
-        sendMessageToBackend('StartNativePlaybackPcm', {
-          SampleRate: ctx.sampleRate,
-          Channels: 2,
-        });
-        pcmStreamStartedRef.current = true;
+        startNativePcmStream(ctx.sampleRate, 2);
       }
 
       for (const td of trackDataRef.current.values()) {
@@ -388,7 +409,7 @@ export function useAudioTracks(
 
       pumpDecoders();
     },
-    [pumpDecoders, stopAllSources, videoRef],
+    [pumpDecoders, startNativePcmStream, stopAllSources, stopNativePcmStream, videoRef],
   );
 
   useEffect(() => {
@@ -435,11 +456,7 @@ export function useAudioTracks(
         if (!vid || vid.paused || vid.ended || masterMutedRef.current) return;
 
         if (!pcmStreamStartedRef.current) {
-          sendMessageToBackend('StartNativePlaybackPcm', {
-            SampleRate: ctx.sampleRate,
-            Channels: 2,
-          });
-          pcmStreamStartedRef.current = true;
+          startNativePcmStream(ctx.sampleRate, 2);
         }
 
         const input = event.inputBuffer;
@@ -736,8 +753,7 @@ export function useAudioTracks(
         }
       }
       silentGainRef.current = null;
-      pcmStreamStartedRef.current = false;
-      sendMessageToBackend('StopNativePlaybackPcm');
+      stopNativePcmStream();
 
       const ctx = audioCtxRef.current;
       if (ctx) ctx.close().catch(() => {});
@@ -752,7 +768,9 @@ export function useAudioTracks(
     pumpDecoders,
     onDecoderOutput,
     rangeFetch,
+    startNativePcmStream,
     stopAllSources,
+    stopNativePcmStream,
     videoRef,
   ]);
 
@@ -773,11 +791,7 @@ export function useAudioTracks(
         }
       }
       try {
-        sendMessageToBackend('StartNativePlaybackPcm', {
-          SampleRate: ctx.sampleRate,
-          Channels: 2,
-        });
-        pcmStreamStartedRef.current = true;
+        startNativePcmStream(ctx.sampleRate, 2);
       } catch {
         // ignore; the PCM path will retry from the audio processor
       }
@@ -786,8 +800,7 @@ export function useAudioTracks(
 
     const onPause = () => {
       stopAllSources();
-      pcmStreamStartedRef.current = false;
-      sendMessageToBackend('StopNativePlaybackPcm');
+      stopNativePcmStream();
     };
 
     const onSeeked = () => {
@@ -819,7 +832,16 @@ export function useAudioTracks(
       stopAllSources();
       vid.muted = true;
     };
-  }, [videoRef, isMultiTrack, resyncTo, stopAllSources, pumpDecoders, applyMuting]);
+  }, [
+    videoRef,
+    isMultiTrack,
+    resyncTo,
+    stopAllSources,
+    stopNativePcmStream,
+    pumpDecoders,
+    applyMuting,
+    startNativePcmStream,
+  ]);
 
   useEffect(() => {
     applyMuting();
@@ -865,22 +887,17 @@ export function useAudioTracks(
       masterMutedRef.current = muted;
       setMasterMutedState(muted);
       if (muted) {
-        pcmStreamStartedRef.current = false;
-        sendMessageToBackend('StopNativePlaybackPcm');
+        stopNativePcmStream();
       } else {
         const ctx = audioCtxRef.current;
         const vid = videoRef.current;
         if (ctx && vid && !vid.paused && !vid.ended) {
-          sendMessageToBackend('StartNativePlaybackPcm', {
-            SampleRate: ctx.sampleRate,
-            Channels: 2,
-          });
-          pcmStreamStartedRef.current = true;
+          startNativePcmStream(ctx.sampleRate, 2);
         }
       }
       applyMuting();
     },
-    [applyMuting, videoRef],
+    [applyMuting, startNativePcmStream, stopNativePcmStream, videoRef],
   );
 
   const setMasterVolume = useCallback(

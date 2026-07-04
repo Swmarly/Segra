@@ -268,8 +268,8 @@ namespace Segra.Backend.Api
             long start = 0;
             long end;
 
-            using (var fs = new FileStream(fileName, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete, 262144,
-                FileOptions.Asynchronous | FileOptions.SequentialScan))
+            using (var fs = new FileStream(fileName, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete, 128 * 1024,
+                FileOptions.Asynchronous | FileOptions.RandomAccess))
             {
                 long fileLength = fs.Length;
                 end = fileLength - 1;
@@ -317,19 +317,30 @@ namespace Segra.Backend.Api
                     fs.Seek(start, SeekOrigin.Begin);
                 }
 
-                byte[] buffer = new byte[262144];
+                byte[] buffer = new byte[128 * 1024];
                 long bytesRemaining = contentLength;
 
-                while (bytesRemaining > 0)
+                try
                 {
-                    int bytesToRead = (int)Math.Min(buffer.Length, bytesRemaining);
-                    int bytesRead = await fs.ReadAsync(buffer, 0, bytesToRead);
+                    while (bytesRemaining > 0)
+                    {
+                        int bytesToRead = (int)Math.Min(buffer.Length, bytesRemaining);
+                        int bytesRead = await fs.ReadAsync(buffer, 0, bytesToRead);
 
-                    if (bytesRead == 0)
-                        break;
+                        if (bytesRead == 0)
+                            break;
 
-                    await response.OutputStream.WriteAsync(buffer, 0, bytesRead);
-                    bytesRemaining -= bytesRead;
+                        await response.OutputStream.WriteAsync(buffer, 0, bytesRead);
+                        bytesRemaining -= bytesRead;
+                    }
+                }
+                catch (HttpListenerException)
+                {
+                    // The browser commonly abandons stale range requests after seeks or rapid play/pause.
+                }
+                catch (IOException)
+                {
+                    // Treat client disconnects as a normal streaming outcome.
                 }
             }
         }

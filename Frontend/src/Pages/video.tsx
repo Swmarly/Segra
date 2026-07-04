@@ -110,6 +110,7 @@ const PLAYBACK_SPEEDS = Array.from(
   (_, i) => MIN_PLAYBACK_RATE + i * PLAYBACK_RATE_STEP,
 );
 const NATIVE_AUDIO_SYNC_INTERVAL_MS = 500;
+const UI_TIME_UPDATE_INTERVAL_MS = 100;
 const formatPlaybackRateLabel = (rate: number) => `${rate}x`;
 const clampPlaybackRate = (rate: number) =>
   Math.max(MIN_PLAYBACK_RATE, Math.min(MAX_PLAYBACK_RATE, rate));
@@ -423,6 +424,8 @@ export default function VideoComponent({ video }: { video: Content }) {
     playbackRate,
   });
   const nativeAudioLastSyncRef = useRef(0);
+  const playIntentRef = useRef(false);
+  const playPromiseRef = useRef<Promise<void> | null>(null);
   const segmentsRef = useRef(segments);
 
   useEffect(() => {
@@ -613,8 +616,9 @@ export default function VideoComponent({ video }: { video: Content }) {
 
     const onPlay = () => {
       vid.muted = true;
+      playIntentRef.current = true;
       setIsPlaying(true);
-      syncNativePlaybackAudio(true, { playing: true, forceSeek: true });
+      syncNativePlaybackAudio(true, { playing: true });
     };
     const onPause = () => {
       if (fullscreenAudioTransitionRef.current && fullscreenWasPlayingRef.current && !vid.ended) {
@@ -622,6 +626,7 @@ export default function VideoComponent({ video }: { video: Content }) {
         syncNativePlaybackAudio(true, { playing: true, time: vid.currentTime });
         return;
       }
+      playIntentRef.current = false;
       setIsPlaying(false);
       syncNativePlaybackAudio(true, { playing: false });
     };
@@ -779,13 +784,21 @@ export default function VideoComponent({ video }: { video: Content }) {
     const vid = videoRef.current;
     if (!vid) return;
     let rafId = 0;
+    let lastUiUpdate = 0;
+    let lastSegmentCheck = -1;
     const tick = () => {
-      setCurrentTime(vid.currentTime);
+      const now = performance.now();
+      const t = vid.currentTime;
+
+      if (now - lastUiUpdate >= UI_TIME_UPDATE_INTERVAL_MS || vid.paused || vid.ended) {
+        setCurrentTime(t);
+        lastUiUpdate = now;
+      }
 
       // Per-segment audio mute/volume override
       const at = audioTracksRef.current;
-      if (at.isMultiTrack) {
-        const t = vid.currentTime;
+      if (at.isMultiTrack && Math.abs(t - lastSegmentCheck) >= 0.05) {
+        lastSegmentCheck = t;
         const segs = segmentsRef.current;
         const activeSeg = segs.find((s) => t >= s.startTime && t <= s.endTime);
         const activeId = activeSeg?.id ?? null;
@@ -809,10 +822,12 @@ export default function VideoComponent({ video }: { video: Content }) {
       }
     };
     const onPlay = () => {
+      lastUiUpdate = 0;
       rafId = requestAnimationFrame(tick);
     };
     const onPause = () => {
       cancelAnimationFrame(rafId);
+      setCurrentTime(vid.currentTime);
     };
     vid.addEventListener('play', onPlay);
     vid.addEventListener('pause', onPause);
@@ -1026,13 +1041,42 @@ export default function VideoComponent({ video }: { video: Content }) {
   }, [zoom]);
 
   // Video control functions
+  const requestVideoPlay = useCallback(() => {
+    const vid = videoRef.current;
+    if (!vid) return;
+
+    playIntentRef.current = true;
+    if (playPromiseRef.current) return;
+
+    const playPromise = vid.play();
+    playPromiseRef.current = playPromise;
+    playPromise
+      .catch(() => {
+        // Browser/WebView may reject during rapid toggles or fullscreen transitions.
+      })
+      .finally(() => {
+        playPromiseRef.current = null;
+        if (!playIntentRef.current && !vid.paused) {
+          vid.pause();
+        }
+      });
+  }, []);
+
+  const requestVideoPause = useCallback(() => {
+    const vid = videoRef.current;
+    if (!vid) return;
+    playIntentRef.current = false;
+    vid.pause();
+  }, []);
+
   const handlePlayPause = () => {
-    if (videoRef.current) {
-      if (videoRef.current.paused) {
-        videoRef.current.play();
-      } else {
-        videoRef.current.pause();
-      }
+    const vid = videoRef.current;
+    if (!vid) return;
+
+    if (vid.paused && !(playPromiseRef.current && playIntentRef.current)) {
+      requestVideoPlay();
+    } else {
+      requestVideoPause();
     }
   };
 
