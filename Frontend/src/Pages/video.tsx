@@ -105,10 +105,13 @@ function renderWaveformRegion(
 const MIN_PLAYBACK_RATE = 0.25;
 const MAX_PLAYBACK_RATE = 4;
 const PLAYBACK_RATE_STEP = 0.25;
-const PLAYBACK_SPEEDS = Array.from(
-  { length: Math.round((MAX_PLAYBACK_RATE - MIN_PLAYBACK_RATE) / PLAYBACK_RATE_STEP) + 1 },
-  (_, i) => MIN_PLAYBACK_RATE + i * PLAYBACK_RATE_STEP,
-);
+const PLAYBACK_RATE_MARKS = [
+  { value: 0.25, label: '0.25x' },
+  { value: 1, label: '1x' },
+  { value: 2, label: '2x' },
+  { value: 3, label: '3x' },
+  { value: 4, label: '4x' },
+];
 const NATIVE_AUDIO_SYNC_INTERVAL_MS = 500;
 const UI_TIME_UPDATE_INTERVAL_MS = 100;
 const formatPlaybackRateLabel = (rate: number) => `${rate}x`;
@@ -227,7 +230,7 @@ export default function VideoComponent({ video }: { video: Content }) {
   const pendingScrollRef = useRef<number | null>(null);
   const zoomAnimationRef = useRef<number>(0);
   const speedButtonRef = useRef<HTMLButtonElement | null>(null);
-  const speedDropdownRef = useRef<HTMLDivElement | null>(null);
+  const speedPopoverRef = useRef<HTMLDivElement | null>(null);
   const waveformCanvasRef = useRef<HTMLCanvasElement>(null);
   const peaksRef = useRef<number[] | null>(null);
   const peaksMaxRef = useRef<number>(128);
@@ -254,7 +257,7 @@ export default function VideoComponent({ video }: { video: Content }) {
   const [videoScale, setVideoScale] = useState(1);
   const [videoTranslate, setVideoTranslate] = useState({ x: 0, y: 0 });
   const [isPanning, setIsPanning] = useState(false);
-  const [showSpeedMenu, setShowSpeedMenu] = useState(false);
+  const [showSpeedPopover, setShowSpeedPopover] = useState(false);
   const videoPanStartRef = useRef<{ x: number; y: number } | null>(null);
   const panMovedRef = useRef(false);
   const videoScaleRef = useRef<number>(videoScale);
@@ -263,20 +266,22 @@ export default function VideoComponent({ video }: { video: Content }) {
     videoScaleRef.current = videoScale;
   }, [videoScale]);
 
-  // Close speed menu when clicking outside or pressing Escape
   useEffect(() => {
-    if (!showSpeedMenu) return;
+    if (!showSpeedPopover) return;
 
     const handleClickOutside = (event: MouseEvent) => {
-      if (!speedDropdownRef.current?.contains(event.target as Node)) {
-        setShowSpeedMenu(false);
-        speedButtonRef.current?.blur();
+      const target = event.target as Node;
+      if (speedPopoverRef.current?.contains(target) || speedButtonRef.current?.contains(target)) {
+        return;
       }
+
+      setShowSpeedPopover(false);
+      speedButtonRef.current?.blur();
     };
 
     const handleEscape = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
-        setShowSpeedMenu(false);
+        setShowSpeedPopover(false);
         speedButtonRef.current?.blur();
       }
     };
@@ -287,7 +292,7 @@ export default function VideoComponent({ video }: { video: Content }) {
       document.removeEventListener('mousedown', handleClickOutside);
       document.removeEventListener('keydown', handleEscape);
     };
-  }, [showSpeedMenu]);
+  }, [showSpeedPopover]);
 
   // Close timeline audio menu when clicking outside
   useEffect(() => {
@@ -512,7 +517,7 @@ export default function VideoComponent({ video }: { video: Content }) {
   useEffect(() => {
     controlsVisibleRef.current = controlsVisible;
     if (!controlsVisible) {
-      setShowSpeedMenu(false);
+      setShowSpeedPopover(false);
       setShowAudioTracks(false);
       speedButtonRef.current?.blur();
     }
@@ -1836,6 +1841,11 @@ export default function VideoComponent({ video }: { video: Content }) {
     localStorage.setItem('segra-playbackRate', r.toString());
   };
 
+  const playbackRateProgress =
+    ((playbackRate - MIN_PLAYBACK_RATE) / (MAX_PLAYBACK_RATE - MIN_PLAYBACK_RATE)) * 100;
+  const playbackRateTickCount =
+    Math.round((MAX_PLAYBACK_RATE - MIN_PLAYBACK_RATE) / PLAYBACK_RATE_STEP) + 1;
+
   return (
     <DndProvider backend={HTML5Backend}>
       <div className="flex w-full h-full overflow-hidden bg-base-200" ref={containerRef}>
@@ -2044,47 +2054,101 @@ export default function VideoComponent({ video }: { video: Content }) {
                   >
                     <ZoomIn className="w-4 h-4" />
                   </button>
-                  <div className="relative" ref={speedDropdownRef}>
+                  <div className="relative">
                     <button
                       ref={speedButtonRef}
                       type="button"
-                      className="flex items-center justify-center gap-1 px-2 py-1 text-xs font-medium text-white cursor-pointer transition-colors border rounded-md border-base-400 hover:text-accent hover:bg-accent/20"
-                      aria-label="Change playback speed"
-                      aria-haspopup="menu"
-                      aria-expanded={showSpeedMenu}
-                      onClick={() => {
-                        if (showSpeedMenu) {
-                          setShowSpeedMenu(false);
-                          speedButtonRef.current?.blur();
-                        } else {
-                          setShowSpeedMenu(true);
-                        }
-                      }}
+                      onClick={() => setShowSpeedPopover((open) => !open)}
+                      className={`flex h-6 min-w-14 items-center justify-center rounded-md border px-2 text-xs font-semibold tabular-nums text-white transition-colors ${
+                        showSpeedPopover
+                          ? 'border-accent/70 bg-accent/20 text-accent'
+                          : 'border-base-400 bg-black/30 hover:border-accent/60 hover:bg-accent/10'
+                      }`}
+                      aria-label="Playback speed"
+                      aria-haspopup="dialog"
+                      aria-expanded={showSpeedPopover}
                     >
-                      <span>{formatPlaybackRateLabel(playbackRate)}</span>
+                      {formatPlaybackRateLabel(playbackRate)}
                     </button>
                     <div
-                      className={`absolute right-0 bottom-full z-50 mb-2 max-h-64 overflow-y-auto border rounded-md shadow-lg bg-black/90 border-base-400 transition-all duration-300 ${showSpeedMenu ? 'opacity-100 translate-y-0 pointer-events-auto' : 'opacity-0 translate-y-2 pointer-events-none'}`}
+                      ref={speedPopoverRef}
+                      className={`absolute right-0 bottom-full z-50 mb-2 w-72 rounded-md border border-base-400 bg-black/70 p-3 text-white shadow-xl backdrop-blur-sm transition-all duration-200 ${
+                        showSpeedPopover
+                          ? 'translate-y-0 opacity-100 pointer-events-auto'
+                          : 'translate-y-2 opacity-0 pointer-events-none'
+                      }`}
                     >
-                      <div className="grid grid-cols-2 min-w-28">
-                        {PLAYBACK_SPEEDS.map((speed) => {
-                          const isActive = Math.abs(speed - playbackRate) < 0.001;
-                          return (
-                            <button
-                              key={speed}
-                              role="menuitemradio"
-                              aria-checked={isActive}
-                              onClick={() => {
-                                setPlaybackRateForPlayer(speed);
-                                setShowSpeedMenu(false);
-                                speedButtonRef.current?.blur();
-                              }}
-                              className={`flex w-full items-center justify-center px-3 py-1 cursor-pointer text-sm transition-colors ${isActive ? 'text-white bg-accent/20' : 'text-white/80 hover:text-white hover:bg-accent/10'}`}
-                            >
-                              <span>{formatPlaybackRateLabel(speed)}</span>
-                            </button>
-                          );
-                        })}
+                      <div className="flex items-center justify-between gap-3">
+                        <span className="text-xs font-medium text-white/70">Playback speed</span>
+                        <button
+                          type="button"
+                          onClick={() => setPlaybackRateForPlayer(1)}
+                          className="rounded-md border border-base-400 bg-black/20 px-2 py-1 text-xs font-semibold text-white transition-colors hover:border-accent/60 hover:bg-accent/20 hover:text-accent"
+                        >
+                          Reset
+                        </button>
+                      </div>
+                      <div className="mt-3 px-1">
+                        <input
+                          type="range"
+                          min={MIN_PLAYBACK_RATE}
+                          max={MAX_PLAYBACK_RATE}
+                          step={PLAYBACK_RATE_STEP}
+                          value={playbackRate}
+                          onChange={(e) => setPlaybackRateForPlayer(parseFloat(e.target.value))}
+                          onPointerUp={(e) => e.currentTarget.blur()}
+                          onMouseUp={(e) => e.currentTarget.blur()}
+                          onTouchEnd={(e) => e.currentTarget.blur()}
+                          className="h-2 w-full cursor-pointer appearance-none rounded-full transition-all duration-200 [&::-moz-range-thumb]:h-4 [&::-moz-range-thumb]:w-4 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:border-2 [&::-moz-range-thumb]:border-black [&::-moz-range-thumb]:bg-white [&::-moz-range-thumb]:shadow-sm [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:border-2 [&::-webkit-slider-thumb]:border-black [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:shadow-sm"
+                          style={{
+                            backgroundImage: `linear-gradient(to right, var(--color-accent) ${playbackRateProgress}%, #4b5563 ${playbackRateProgress}%)`,
+                          }}
+                          aria-label="Playback speed"
+                        />
+                        <div className="mt-2 grid grid-flow-col auto-cols-fr px-1">
+                          {Array.from({ length: playbackRateTickCount }).map((_, index) => {
+                            const value = MIN_PLAYBACK_RATE + index * PLAYBACK_RATE_STEP;
+                            const isWhole = Number.isInteger(value);
+                            const isHalf = value % 0.5 === 0;
+                            return (
+                              <span
+                                key={value}
+                                className={`mx-auto block rounded-full bg-white/35 ${
+                                  isWhole ? 'h-3 w-px' : isHalf ? 'h-2 w-px' : 'h-1.5 w-px'
+                                }`}
+                              />
+                            );
+                          })}
+                        </div>
+                        <div className="relative mt-1 h-4">
+                          {PLAYBACK_RATE_MARKS.map((mark) => {
+                            const markProgress =
+                              ((mark.value - MIN_PLAYBACK_RATE) /
+                                (MAX_PLAYBACK_RATE - MIN_PLAYBACK_RATE)) *
+                              100;
+                            const edgePosition =
+                              markProgress === 0
+                                ? 'translate-x-0 text-left'
+                                : markProgress === 100
+                                  ? '-translate-x-full text-right'
+                                  : '-translate-x-1/2 text-center';
+                            return (
+                              <button
+                                key={mark.value}
+                                type="button"
+                                onClick={() => setPlaybackRateForPlayer(mark.value)}
+                                className={`absolute top-0 text-[10px] font-medium tabular-nums transition-colors hover:text-accent ${edgePosition} ${
+                                  Math.abs(mark.value - playbackRate) < 0.001
+                                    ? 'text-accent'
+                                    : 'text-white/55'
+                                }`}
+                                style={{ left: `${markProgress}%` }}
+                              >
+                                {mark.label}
+                              </button>
+                            );
+                          })}
+                        </div>
                       </div>
                     </div>
                   </div>
