@@ -1,9 +1,6 @@
 name: Friend Release
 
 on:
-  push:
-    branches:
-      - main
   workflow_dispatch:
     inputs:
       version:
@@ -27,36 +24,11 @@ jobs:
         uses: actions/checkout@v6
         with:
           fetch-depth: 0
-          lfs: true
           submodules: recursive
 
-      - name: Verify bundled OBS archive
+      - name: Download bundled OBS archive
         shell: pwsh
-        run: |
-          $obsZip = "Obs/OBS 32.1.2.zip"
-          if (-not (Test-Path $obsZip)) {
-            throw "Bundled OBS archive is missing: $obsZip"
-          }
-
-          $size = (Get-Item $obsZip).Length
-          if ($size -lt 1MB) {
-            $preview = Get-Content $obsZip -Raw -ErrorAction SilentlyContinue
-            throw "Bundled OBS archive is only $size bytes. Git LFS content was not downloaded. File starts with: $preview"
-          }
-
-          Add-Type -AssemblyName System.IO.Compression.FileSystem
-          $zip = [System.IO.Compression.ZipFile]::OpenRead($obsZip)
-          try {
-            $hasObsDll = $zip.Entries | Where-Object { $_.FullName -eq "obs.dll" } | Select-Object -First 1
-            $hasPlugins = $zip.Entries | Where-Object { $_.FullName -like "obs-plugins/64bit/*" } | Select-Object -First 1
-            if (-not $hasObsDll -or -not $hasPlugins) {
-              throw "Bundled OBS archive is not in the expected layout."
-            }
-          } finally {
-            $zip.Dispose()
-          }
-
-          Write-Host "Bundled OBS archive verified: $obsZip ($size bytes)"
+        run: ./scripts/Download-ObsBundle.ps1
 
       - name: Choose version
         id: version

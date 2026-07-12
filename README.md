@@ -43,10 +43,20 @@
 
 ## 🚀 Friend Releases
 This repository includes a GitHub Actions workflow named **Friend Release**.
-Every push to `main` builds a Windows installer, publishes a GitHub Release, and uploads the Velopack update feed files used by the in-app updater.
+It is started manually from the Actions tab and builds a Windows installer, publishes a GitHub Release, and uploads the Velopack update feed files used by the in-app updater.
 
-To ship an update, push to `main` and share the latest `Segra-win-Setup.exe` from [releases](https://github.com/Swmarly/Segra/releases/latest).
+To ship an update, run **Friend Release** with an optional semantic version and share the latest `Segra-win-Setup.exe` from [releases](https://github.com/Swmarly/Segra/releases/latest).
 Friends only need to install it once; later releases are detected and installed from inside the app.
+
+### OBS build bundle
+
+The pinned OBS archive is stored as the `OBS-32.1.2.zip` asset on the [`obs-bundle-32.1.2` release](https://github.com/Swmarly/Segra/releases/tag/obs-bundle-32.1.2), not in Git LFS. The Friend Release workflow downloads and verifies it automatically.
+
+Developers can place the verified bundle at the path expected by the build by running:
+
+```powershell
+./scripts/Download-ObsBundle.ps1
+```
 
 ## 🔄 Uninstallation
 1. Open `Windows Settings`
