@@ -1,0 +1,74 @@
+name: Sync official Segra
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "17 3 * * 1"
+      timezone: "Europe/Oslo"
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v6
+        with:
+          ref: main
+          fetch-depth: 0
+          lfs: false
+
+      - name: Fetch official upstream
+        shell: bash
+        run: |
+          set -euo pipefail
+          git remote add upstream https://github.com/Segergren/Segra.git
+          git fetch --no-tags upstream main
+
+      - name: Apply upstream changes
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          if ! git merge --squash --no-commit upstream/main; then
+            git checkout --ours -- .gitattributes 2>/dev/null || true
+            git add .gitattributes 2>/dev/null || true
+
+            unresolved="$(git diff --name-only --diff-filter=U)"
+
+            if [ -n "$unresolved" ]; then
+              echo "Upstream changes require manual conflict resolution:"
+              echo "$unresolved"
+              exit 1
+            fi
+          fi
+
+          # Never reintroduce upstream OBS archives or Git LFS pointers.
+          git ls-files -z -- 'Obs/*.zip' 'Obs/*.tar.gz' |
+            xargs -0 -r git rm -f --
+
+          git add .gitattributes
+
+      - name: Create upstream sync pull request
+        uses: peter-evans/create-pull-request@v8
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          branch: automation/upstream-sync
+          base: main
+          delete-branch: true
+          title: "Sync with official Segra"
+          commit-message: "chore: sync with official upstream"
+          body: |
+            Automated sync from:
+
+            https://github.com/Segergren/Segra
+
+            The sync preserves the custom OBS download workflow and excludes
+            upstream OBS archive files managed through broken Git LFS objects.
