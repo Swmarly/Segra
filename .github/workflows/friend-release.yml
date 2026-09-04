@@ -86,7 +86,7 @@ jobs:
 
       - name: Publish app
         shell: pwsh
-        run: dotnet publish -c Release --self-contained -r win-x64 -o publish --no-restore -p:Version=${{ steps.version.outputs.version }}
+        run: dotnet publish -c Release -f net10.0-windows10.0.19041.0 --self-contained -r win-x64 -o publish --no-restore -p:Version=${{ steps.version.outputs.version }}
 
       - name: Bundle Visual C++ runtime DLLs
         shell: pwsh
@@ -128,7 +128,7 @@ jobs:
         shell: pwsh
         run: |
           git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git tag ${{ steps.version.outputs.tag }}
           git push origin ${{ steps.version.outputs.tag }}
 
