@@ -30,7 +30,7 @@ jobs:
           git remote add upstream https://github.com/Segergren/Segra.git
           git fetch --no-tags upstream main
 
-      - name: Apply upstream changes
+      - name: Apply upstream changes safely
         shell: bash
         run: |
           set -euo pipefail
@@ -38,25 +38,66 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
+          merge_failed=false
+
           if ! git merge --squash --no-commit upstream/main; then
+            merge_failed=true
+
+            # The custom .gitattributes file must remain ours.
             git checkout --ours -- .gitattributes 2>/dev/null || true
-            git add .gitattributes 2>/dev/null || true
+            git add -- .gitattributes 2>/dev/null || true
 
             unresolved="$(git diff --name-only --diff-filter=U)"
 
             if [ -n "$unresolved" ]; then
-              echo "Upstream changes require manual conflict resolution:"
+              echo "::error::Upstream changes require manual conflict resolution:"
               echo "$unresolved"
+              git reset --hard HEAD
               exit 1
             fi
           fi
 
-          # Never reintroduce upstream OBS archives or Git LFS pointers.
+          # Always preserve the fork's custom Git LFS/storage configuration.
+          git restore --source=HEAD -- .gitattributes
+
+          # Never allow unresolved conflict markers into a pull request.
+          if git grep -n -I -E '^(<<<<<<<|=======|>>>>>>>)' -- .; then
+            echo "::error::Conflict markers were found after the upstream merge. No PR will be created."
+            git reset --hard HEAD
+            exit 1
+          fi
+
+          # Never reintroduce upstream OBS archives or Git LFS pointer files.
           git ls-files -z -- 'Obs/*.zip' 'Obs/*.tar.gz' |
             xargs -0 -r git rm -f --
 
-          git add .gitattributes
+          # Verify the custom download workflow still exists.
+          if [ ! -f scripts/Download-ObsBundle.ps1 ]; then
+            echo "::error::scripts/Download-ObsBundle.ps1 is missing. No PR will be created."
+            git reset --hard HEAD
+            exit 1
+          fi
+
           git add -A
+
+          # Check again after staging, before the PR action sees the workspace.
+          if git diff --cached --name-only --diff-filter=U | grep -q .; then
+            echo "::error::Unresolved files remain after staging. No PR will be created."
+            git reset --hard HEAD
+            exit 1
+          fi
+
+          if git grep -n -I -E '^(<<<<<<<|=======|>>>>>>>)' -- .; then
+            echo "::error::Conflict markers were found in the staged result. No PR will be created."
+            git reset --hard HEAD
+            exit 1
+          fi
+
+          if [ "$merge_failed" = true ]; then
+            echo "Upstream merge completed after resolving only the expected .gitattributes conflict."
+          else
+            echo "Upstream merge completed without Git conflicts."
+          fi
 
       - name: Check whether changes exist
         id: changes
