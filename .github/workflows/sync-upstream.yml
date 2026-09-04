@@ -84,9 +84,10 @@ jobs:
           else
             echo "Applying upstream changes from $sync_base to $upstream_sha."
 
-            git diff --binary --no-renames "$sync_base" "$upstream_sha" > upstream-changes.patch
+            patch_path="$RUNNER_TEMP/upstream-changes.patch"
+            git diff --binary --no-renames "$sync_base" "$upstream_sha" > "$patch_path"
 
-            if ! git apply --3way --index upstream-changes.patch; then
+            if ! git apply --3way --index "$patch_path"; then
               conflict_files="$(git diff --name-only --diff-filter=U || true)"
 
               if [ -z "$conflict_files" ]; then
