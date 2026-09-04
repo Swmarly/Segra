@@ -1,13 +1,14 @@
 using Serilog;
 using System.Net;
+using System.Reflection;
 using System.Text;
 using System.Text.Json;
 using Segra.Backend.Auth;
 using Segra.Backend.Core;
-using System.Diagnostics;
 using Segra.Backend.Games;
 using Segra.Backend.Media;
 using Segra.Backend.Shared;
+using Segra.Backend.Platform;
 using System.Net.WebSockets;
 using Segra.Backend.Recorder;
 using Segra.Backend.Core.Models;
@@ -148,6 +149,12 @@ namespace Segra.Backend.App
                         case "Logout":
                             _ = Task.Run(AuthService.Logout);
                             break;
+                        case "LoginWithDiscord":
+                            _ = Task.Run(DiscordLoginService.Begin);
+                            break;
+                        case "CancelDiscordLogin":
+                            DiscordLoginService.Cancel();
+                            break;
                         case "CancelClip":
                             if (root.TryGetProperty("Parameters", out var cancelClipParams) &&
                                 cancelClipParams.TryGetProperty("id", out var clipId))
@@ -202,8 +209,7 @@ namespace Segra.Backend.App
                                 openFileLocationParameterElement.TryGetProperty("FilePath", out JsonElement filePathElement) &&
                                 filePathElement.ValueKind == JsonValueKind.String)
                             {
-                                string selectPath = filePathElement.GetString()!.Replace("/", "\\");
-                                Process.Start("explorer.exe", $"/select,\"{selectPath}\"");
+                                PlatformServices.Dialogs.OpenFileLocation(filePathElement.GetString()!);
                             }
                             else
                             {
@@ -217,19 +223,26 @@ namespace Segra.Backend.App
                                 string clipboardFilePath = copyFilePath.GetString()!;
                                 if (File.Exists(clipboardFilePath))
                                 {
-                                    var thread = new Thread(() =>
-                                    {
-                                        var files = new System.Collections.Specialized.StringCollection();
-                                        files.Add(clipboardFilePath);
-                                        System.Windows.Forms.Clipboard.SetFileDropList(files);
-                                    });
-                                    thread.SetApartmentState(ApartmentState.STA);
-                                    thread.Start();
+                                    PlatformServices.Dialogs.CopyFileToClipboard(clipboardFilePath);
                                 }
                                 else
                                 {
                                     Log.Warning($"File not found for clipboard copy: {clipboardFilePath}");
                                 }
+                            }
+                            break;
+                        case "CopyCompressedFileToClipboard":
+                            root.TryGetProperty("Parameters", out JsonElement copyCompressedParams);
+                            if (copyCompressedParams.TryGetProperty("FilePath", out JsonElement copyCompressedFilePath) &&
+                                copyCompressedParams.TryGetProperty("MaxSizeMb", out JsonElement copyCompressedMaxSizeMb))
+                            {
+                                string compressedSourcePath = copyCompressedFilePath.GetString()!;
+                                int maxSizeMb = copyCompressedMaxSizeMb.GetInt32();
+                                _ = Task.Run(() => CompressionService.CopyCompressedToClipboard(compressedSourcePath, maxSizeMb));
+                            }
+                            else
+                            {
+                                Log.Warning("FilePath or MaxSizeMb parameter not found in CopyCompressedFileToClipboard message");
                             }
                             break;
                         case "OpenInBrowser":
@@ -238,11 +251,7 @@ namespace Segra.Backend.App
                             {
                                 string url = urlElement.GetString()!;
                                 Log.Information($"Opening URL in browser: {url}");
-                                Process.Start(new ProcessStartInfo
-                                {
-                                    FileName = url,
-                                    UseShellExecute = true
-                                });
+                                PlatformServices.Dialogs.OpenUrl(url);
                             }
                             else
                             {
@@ -255,7 +264,7 @@ namespace Segra.Backend.App
                             string? logFilePath = Directory.GetFiles(logDir, "*.log").FirstOrDefault();
                             if (!string.IsNullOrEmpty(logFilePath))
                             {
-                                Process.Start("explorer.exe", $"/select,\"{logFilePath}\"");
+                                PlatformServices.Dialogs.OpenFileLocation(logFilePath);
                             }
                             else
                             {
@@ -277,6 +286,9 @@ namespace Segra.Backend.App
                         case "StopRecording":
                             _ = Task.Run(OBSService.StopRecording);
                             break;
+                        case "RefreshStorageStats":
+                            StorageService.UpdateRecordingDriveSpaceInState();
+                            break;
                         case "NewConnection":
                             Log.Information("NewConnection command received.");
                             await SendSettingsToFrontend("New connection");
@@ -284,16 +296,22 @@ namespace Segra.Backend.App
 
                             await SendGameList();
 
-                            if (UpdateService.UpdateManager.CurrentVersion != null)
-                            {
-                                string appVersion = UpdateService.UpdateManager.CurrentVersion.ToString();
+                            // canSelfUpdate: false on Linux/Flatpak, where the package manager owns updates.
+                            // Informational version, not GetName().Version: it keeps the -beta.N suffix,
+                            // which the frontend's What's New check needs on Flatpak (no Velopack metadata).
+                            string appVersion = UpdateService.UpdateManager.CurrentVersion?.ToString()
+                                ?? Assembly.GetExecutingAssembly().GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion
+                                ?? "0.0.0";
 
-                                // Send version to frontend to prevent mismatch
-                                await SendFrontendMessage("AppVersion", new
-                                {
-                                    version = appVersion
-                                });
-                            }
+                            await SendFrontendMessage("AppVersion", new
+                            {
+                                version = appVersion,
+#if WINDOWS
+                                canSelfUpdate = true,
+#else
+                                canSelfUpdate = false,
+#endif
+                            });
 
                             await UpdateService.SendCurrentUpdateProgressToFrontend();
                             _ = Task.Run(() => UpdateService.GetReleaseNotes());
@@ -392,34 +410,23 @@ namespace Segra.Backend.App
         {
             Log.Information($"Handling DeleteContent with message: {message}");
 
-            if (message.TryGetProperty("FileName", out JsonElement fileNameElement) &&
-                message.TryGetProperty("ContentType", out JsonElement contentTypeElement))
+            if (message.TryGetProperty("Id", out JsonElement idElement))
             {
-                string fileName = fileNameElement.GetString()!;
-                string contentTypeStr = contentTypeElement.GetString()!;
+                string id = idElement.GetString()!;
+                Content? content = AppState.Instance.Content.FirstOrDefault(c => c.Id == id);
 
-                if (Enum.TryParse(contentTypeStr, true, out Content.ContentType contentType))
+                if (content != null && !string.IsNullOrEmpty(content.FilePath))
                 {
-                    Content? content = AppState.Instance.Content.FirstOrDefault(c =>
-                        c.FileName == fileName && c.Type == contentType);
-
-                    if (content != null && !string.IsNullOrEmpty(content.FilePath))
-                    {
-                        await ContentService.DeleteContent(content.FilePath, contentType);
-                    }
-                    else
-                    {
-                        Log.Warning($"Content not found in state for deletion: {fileName} ({contentTypeStr})");
-                    }
+                    await ContentService.DeleteContent(content.FilePath, content.Type, content.Id);
                 }
                 else
                 {
-                    Log.Error($"Invalid ContentType provided: {contentTypeStr}");
+                    Log.Warning($"Content not found in state for deletion: {id}");
                 }
             }
             else
             {
-                Log.Information("FileName or ContentType property not found in DeleteContent message.");
+                Log.Information("Id property not found in DeleteContent message.");
             }
         }
 
@@ -427,9 +434,9 @@ namespace Segra.Backend.App
         {
             Log.Information($"Handling DeleteMultipleContent with message: {message}");
 
-            if (!message.TryGetProperty("Items", out JsonElement itemsElement))
+            if (!message.TryGetProperty("Ids", out JsonElement idsElement))
             {
-                Log.Information("Items property not found in DeleteMultipleContent message.");
+                Log.Information("Ids property not found in DeleteMultipleContent message.");
                 return;
             }
 
@@ -437,33 +444,19 @@ namespace Segra.Backend.App
             Settings.Instance._isBulkUpdating = true;
             try
             {
-                foreach (var item in itemsElement.EnumerateArray())
+                foreach (var idElement in idsElement.EnumerateArray())
                 {
-                    if (item.TryGetProperty("FileName", out JsonElement fileNameElement) &&
-                        item.TryGetProperty("ContentType", out JsonElement contentTypeElement))
+                    string id = idElement.GetString()!;
+                    Content? content = AppState.Instance.Content.FirstOrDefault(c => c.Id == id);
+
+                    if (content != null && !string.IsNullOrEmpty(content.FilePath))
                     {
-                        string fileName = fileNameElement.GetString()!;
-                        string contentTypeStr = contentTypeElement.GetString()!;
-
-                        if (Enum.TryParse(contentTypeStr, true, out Content.ContentType contentType))
-                        {
-                            Content? content = AppState.Instance.Content.FirstOrDefault(c =>
-                                c.FileName == fileName && c.Type == contentType);
-
-                            if (content != null && !string.IsNullOrEmpty(content.FilePath))
-                            {
-                                await ContentService.DeleteContent(content.FilePath, contentType, sendToFrontend: false);
-                                Log.Information($"Deleted content: {fileName}");
-                            }
-                            else
-                            {
-                                Log.Warning($"Content not found in state for deletion: {fileName} ({contentTypeStr})");
-                            }
-                        }
-                        else
-                        {
-                            Log.Error($"Invalid ContentType provided: {contentTypeStr}");
-                        }
+                        await ContentService.DeleteContent(content.FilePath, content.Type, content.Id, sendToFrontend: false);
+                        Log.Information($"Deleted content: {content.FileName}");
+                    }
+                    else
+                    {
+                        Log.Warning($"Content not found in state for deletion: {id}");
                     }
                 }
             }
@@ -518,63 +511,6 @@ namespace Segra.Backend.App
                 if (ex.StackTrace != null)
                 {
                     Log.Information(ex.StackTrace);
-                }
-            }
-        }
-
-        // Old frontends still target ws://localhost:5000/ from the previous port. Pushing AppVersion forces a reload via the version-mismatch path in WebSocketContext.tsx.
-        public static async Task StartLegacyPortFallback()
-        {
-            HttpListener listener = new HttpListener();
-            listener.Prefixes.Add("http://localhost:5000/");
-            try
-            {
-                listener.Start();
-            }
-            catch (Exception ex)
-            {
-                Log.Warning($"Legacy port 5000 fallback could not start: {ex.Message}");
-                return;
-            }
-            Log.Information("Legacy fallback listening on ws://localhost:5000/ (version-mismatch trigger only)");
-
-            while (true)
-            {
-                try
-                {
-                    HttpListenerContext context = await listener.GetContextAsync();
-                    if (!context.Request.IsWebSocketRequest)
-                    {
-                        context.Response.StatusCode = 400;
-                        context.Response.Close();
-                        continue;
-                    }
-
-                    HttpListenerWebSocketContext wsContext = await context.AcceptWebSocketAsync(null);
-                    WebSocket socket = wsContext.WebSocket;
-
-                    string version = UpdateService.UpdateManager.CurrentVersion?.ToString() ?? "0.0.0";
-                    var payload = new { method = "AppVersion", content = new { version } };
-                    byte[] buffer = JsonSerializer.SerializeToUtf8Bytes(payload, jsonOptions);
-
-                    try
-                    {
-                        await socket.SendAsync(buffer, WebSocketMessageType.Text, true, CancellationToken.None);
-                        await socket.CloseAsync(WebSocketCloseStatus.NormalClosure, "Port moved - reload", CancellationToken.None);
-                        Log.Information("Legacy port: pushed AppVersion to old frontend and closed.");
-                    }
-                    catch (Exception ex)
-                    {
-                        Log.Warning($"Legacy port send failed: {ex.Message}");
-                    }
-                    finally
-                    {
-                        socket.Dispose();
-                    }
-                }
-                catch (Exception ex)
-                {
-                    Log.Warning($"Legacy port loop error: {ex.Message}");
                 }
             }
         }
@@ -674,8 +610,8 @@ namespace Segra.Backend.App
         private static async Task HandleCreateAiClip(JsonElement message)
         {
             Log.Information($"{message}");
-            message.TryGetProperty("FileName", out JsonElement fileNameElement);
-            await AiService.CreateHighlight(fileNameElement.GetString()!);
+            message.TryGetProperty("Id", out JsonElement idElement);
+            await AiService.CreateHighlight(idElement.GetString()!);
         }
 
         private static async Task HandleCreateAiClipsForSessions(JsonElement message)
@@ -716,7 +652,7 @@ namespace Segra.Backend.App
             int deletedCount = 0;
             foreach (var session in sessions)
             {
-                var result = await AiService.CreateHighlight(session.FileName);
+                var result = await AiService.CreateHighlight(session.Id);
                 if (result != HighlightCreationResult.Created)
                 {
                     Log.Information(
@@ -728,7 +664,7 @@ namespace Segra.Backend.App
 
                 createdCount++;
                 Log.Information("Deleting full session after highlight generation completed: {FilePath}", session.FilePath);
-                await ContentService.DeleteContent(session.FilePath, Content.ContentType.Session, sendToFrontend: false);
+                await ContentService.DeleteContent(session.FilePath, Content.ContentType.Session, session.Id, sendToFrontend: false);
                 deletedCount++;
             }
 
@@ -747,8 +683,25 @@ namespace Segra.Backend.App
         private static async Task HandleCompressVideo(JsonElement message)
         {
             Log.Information($"CompressVideo: {message}");
-            message.TryGetProperty("FilePath", out JsonElement filePathElement);
-            await CompressionService.CompressVideo(filePathElement.GetString()!);
+
+            if (message.TryGetProperty("Id", out JsonElement idElement))
+            {
+                string id = idElement.GetString()!;
+                Content? content = AppState.Instance.Content.FirstOrDefault(c => c.Id == id);
+
+                if (content != null)
+                {
+                    await CompressionService.CompressVideo(content);
+                }
+                else
+                {
+                    Log.Warning($"Content not found in state for compression: {id}");
+                }
+            }
+            else
+            {
+                Log.Error("Id property not found in CompressVideo message.");
+            }
         }
 
         private static async Task HandleCreateClip(JsonElement message)
@@ -761,26 +714,23 @@ namespace Segra.Backend.App
                 foreach (var segmentElement in segmentsElement.EnumerateArray())
                 {
                     if (segmentElement.TryGetProperty("id", out JsonElement idElement) &&
+                        segmentElement.TryGetProperty("contentId", out JsonElement contentIdElement) &&
                         segmentElement.TryGetProperty("startTime", out JsonElement startTimeElement) &&
-                        segmentElement.TryGetProperty("endTime", out JsonElement endTimeElement) &&
-                        segmentElement.TryGetProperty("fileName", out JsonElement fileNameElement) &&
-                        segmentElement.TryGetProperty("type", out JsonElement videoTypeElement) &&
-                        segmentElement.TryGetProperty("game", out JsonElement gameElement) &&
-                        segmentElement.TryGetProperty("title", out JsonElement titleElement))
+                        segmentElement.TryGetProperty("endTime", out JsonElement endTimeElement))
                     {
                         long id = idElement.GetInt64();
+                        string contentId = contentIdElement.GetString()!;
                         double startTime = startTimeElement.GetDouble();
                         double endTime = endTimeElement.GetDouble();
-                        string fileName = fileNameElement.GetString()!;
-                        string type = videoTypeElement.GetString()!;
-                        string game = gameElement.GetString()!;
-                        string title = titleElement.GetString() ?? string.Empty;
-                        int? igdbId = segmentElement.TryGetProperty("igdbId", out JsonElement igdbIdElement) && igdbIdElement.ValueKind == JsonValueKind.Number
-                            ? igdbIdElement.GetInt32()
-                            : null;
-                        string? filePath = segmentElement.TryGetProperty("filePath", out JsonElement filePathElement)
-                            ? filePathElement.GetString()
-                            : null;
+
+                        Content? content = AppState.Instance.Content.FirstOrDefault(c => c.Id == contentId);
+
+                        if (content == null)
+                        {
+                            Log.Warning($"Content not found in state for segment: {contentId}");
+                            continue;
+                        }
+
                         List<int>? mutedAudioTracks = null;
                         if (segmentElement.TryGetProperty("mutedAudioTracks", out JsonElement mutedEl)
                             && mutedEl.ValueKind == JsonValueKind.Array)
@@ -802,14 +752,15 @@ namespace Segra.Backend.App
                         segments.Add(new Segment
                         {
                             Id = id,
-                            Type = type,
+                            Type = content.Type.ToString(),
+                            ContentId = content.Id,
                             StartTime = startTime,
                             EndTime = endTime,
-                            FileName = fileName,
-                            FilePath = filePath,
-                            Game = game,
-                            Title = title,
-                            IgdbId = igdbId,
+                            FileName = content.FileName,
+                            FilePath = content.FilePath,
+                            Game = content.Game,
+                            Title = content.Title,
+                            IgdbId = content.IgdbId,
                             MutedAudioTracks = mutedAudioTracks,
                             AudioTrackVolumes = audioTrackVolumes
                         });
@@ -829,58 +780,48 @@ namespace Segra.Backend.App
 
         private static async Task SetVideoLocationAsync()
         {
-            using (var fbd = new FolderBrowserDialog())
+            string? picked = await PlatformServices.Dialogs.PickFolderAsync("Select a folder to set as the video location.");
+            if (picked != null)
             {
-                fbd.Description = "Select a folder to set as the video location.";
-                fbd.RootFolder = Environment.SpecialFolder.Desktop;
+                string selectedPath = Shared.PathUtils.Normalize(picked);
+                Log.Information($"Selected Folder: {selectedPath}");
 
-                if (fbd.ShowDialog() == DialogResult.OK)
+                // Check if the new folder would exceed storage limit
+                bool shouldProceed = await StorageWarningService.CheckContentFolderChange(selectedPath);
+                if (shouldProceed)
                 {
-                    string selectedPath = Shared.PathUtils.Normalize(fbd.SelectedPath);
-                    Log.Information($"Selected Folder: {selectedPath}");
+                    Settings.Instance.ContentFolder = selectedPath;
 
-                    // Check if the new folder would exceed storage limit
-                    bool shouldProceed = await StorageWarningService.CheckContentFolderChange(selectedPath);
-                    if (shouldProceed)
-                    {
-                        Settings.Instance.ContentFolder = selectedPath;
-
-                        // Push the updated path to the frontend so the settings UI reflects the change
-                        await SendSettingsToFrontend("Content folder changed");
-                    }
-                    // If not proceeding, a warning modal was sent to the frontend
+                    // Push the updated path to the frontend so the settings UI reflects the change
+                    await SendSettingsToFrontend("Content folder changed");
                 }
-                else
-                {
-                    Log.Information("Folder selection was canceled.");
-                }
+                // If not proceeding, a warning modal was sent to the frontend
+            }
+            else
+            {
+                Log.Information("Folder selection was canceled.");
             }
         }
 
         private static async Task SetCacheLocationAsync()
         {
-            using (var fbd = new FolderBrowserDialog())
+            string? picked = await PlatformServices.Dialogs.PickFolderAsync("Select a folder for metadata, thumbnails, and waveforms.");
+            if (picked != null)
             {
-                fbd.Description = "Select a folder for metadata, thumbnails, and waveforms.";
-                fbd.RootFolder = Environment.SpecialFolder.Desktop;
+                string selectedPath = Shared.PathUtils.Normalize(picked);
+                string oldCacheFolder = Settings.Instance.CacheFolder;
+                Log.Information($"Selected Cache Folder: {selectedPath}");
 
-                if (fbd.ShowDialog() == DialogResult.OK)
-                {
-                    string selectedPath = Shared.PathUtils.Normalize(fbd.SelectedPath);
-                    string oldCacheFolder = Settings.Instance.CacheFolder;
-                    Log.Information($"Selected Cache Folder: {selectedPath}");
+                Settings.Instance.CacheFolder = selectedPath;
+                SettingsService.SaveSettings();
 
-                    Settings.Instance.CacheFolder = selectedPath;
-                    SettingsService.SaveSettings();
+                await SettingsService.MigrateCacheFolder(oldCacheFolder, selectedPath);
 
-                    await SettingsService.MigrateCacheFolder(oldCacheFolder, selectedPath);
-
-                    await SendSettingsToFrontend("Cache folder changed");
-                }
-                else
-                {
-                    Log.Information("Cache folder selection was canceled.");
-                }
+                await SendSettingsToFrontend("Cache folder changed");
+            }
+            else
+            {
+                Log.Information("Cache folder selection was canceled.");
             }
         }
 
@@ -932,32 +873,23 @@ namespace Segra.Backend.App
         {
             try
             {
-                var openFileDialog = new OpenFileDialog
-                {
-                    Filter = "Executable Files (*.exe)|*.exe",
-                    Title = "Select Game Executable",
-                    CheckFileExists = true,
-                    CheckPathExists = true,
-                    Multiselect = false,
-                    // Keep the process working directory pinned to the app directory.
-                    RestoreDirectory = true
-                };
+                string? pickedFile = await PlatformServices.Dialogs.PickFileAsync("Select Game Executable", "Executable Files (*.exe)", "exe");
 
-                if (openFileDialog.ShowDialog() == DialogResult.OK)
+                if (pickedFile != null)
                 {
-                    string filePath = Shared.PathUtils.Normalize(openFileDialog.FileName);
+                    string filePath = Shared.PathUtils.Normalize(pickedFile);
                     string fileName = Path.GetFileNameWithoutExtension(filePath);
 
                     // If the selected exe is a known catalog game, link it (catalog name + igdb id + CDN
                     // icon) so it behaves exactly like adding from search; otherwise treat it as a custom
                     // game and extract the exe's own icon.
-                    string? catalogName = GameUtils.GetGameNameFromExePath(openFileDialog.FileName);
-                    int? igdbId = GameUtils.GetIgdbIdFromExePath(openFileDialog.FileName);
-                    string? catalogIcon = GameUtils.GetIconFromExePath(openFileDialog.FileName);
+                    string? catalogName = GameUtils.GetGameNameFromExePath(pickedFile);
+                    int? igdbId = GameUtils.GetIgdbIdFromExePath(pickedFile);
+                    string? catalogIcon = GameUtils.GetIconFromExePath(pickedFile);
                     // Fall back to the exe's own icon whenever the catalog has no icon for it (even for a
                     // known game), so the entry always has the best icon available.
                     string? customIcon = catalogIcon == null
-                        ? Shared.IconUtils.ExtractExeIconBase64(openFileDialog.FileName)
+                        ? Shared.IconUtils.ExtractExeIconBase64(pickedFile)
                         : null;
 
                     var gameObject = new

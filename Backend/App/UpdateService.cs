@@ -16,6 +16,23 @@ namespace Segra.Backend.App
         public static GithubSource BetaSource = new("https://github.com/Swmarly/Segra", null, true);
         public static UpdateManager UpdateManager { get; private set; } = new(Source);
 
+        // Falls back to the assembly version when Velopack has no metadata (dev builds, Flatpak).
+        public static NuGet.Versioning.SemanticVersion GetCurrentVersion()
+        {
+            string? version = UpdateManager.CurrentVersion?.ToString()
+                ?? System.Reflection.Assembly.GetExecutingAssembly().GetName().Version?.ToString(3);
+
+            if (!string.IsNullOrEmpty(version) &&
+                NuGet.Versioning.SemanticVersion.TryParse(version, out var parsed))
+            {
+                return parsed;
+            }
+
+            // Neither source produced a version; treat it as a dev build so nothing is filtered out.
+            Log.Warning("No Velopack or assembly version available; assuming a development build");
+            return new NuGet.Versioning.SemanticVersion(9, 9, 9);
+        }
+
         // Serializes Velopack operations that share the on-disk .velopack_lock.
         private static readonly SemaphoreSlim _updateGate = new(1, 1);
 
@@ -162,6 +179,20 @@ namespace Segra.Backend.App
                 return;
             }
 
+            // Stop any active recording first so OBS finalizes cleanly, mirroring Program.cs's shutdown path.
+            if (Core.Models.AppState.Instance.Recording != null || Core.Models.AppState.Instance.PreRecording != null)
+            {
+                Log.Information("Active recording detected while applying update; stopping it first.");
+                try
+                {
+                    Task.Run(() => OBSService.StopRecording()).GetAwaiter().GetResult();
+                }
+                catch (Exception ex)
+                {
+                    Log.Error(ex, "Error stopping recording before applying update");
+                }
+            }
+
             // Shutdown OBS before restarting to unload graphics-hook64.dll from game processes.
             // ApplyUpdatesAndRestart kills the process immediately, bypassing Program.Shutdown().
             OBSService.Shutdown();
@@ -280,16 +311,7 @@ namespace Segra.Backend.App
             {
                 Log.Information("Getting release notes from GitHub API");
 
-                NuGet.Versioning.SemanticVersion currentVersion;
-                if (UpdateManager.CurrentVersion != null)
-                {
-                    currentVersion = NuGet.Versioning.SemanticVersion.Parse(UpdateManager.CurrentVersion.ToString());
-                }
-                else
-                {
-                    // Fallback for local development builds, which have no installed version.
-                    currentVersion = NuGet.Versioning.SemanticVersion.Parse("0.6.6");
-                }
+                NuGet.Versioning.SemanticVersion currentVersion = GetCurrentVersion();
 
                 Log.Information($"Current version: {currentVersion}");
 
@@ -331,8 +353,8 @@ namespace Segra.Backend.App
                     }
 
                     // Skip releases whose tag is not a parseable version. Prerelease tags
-                    // (release candidate / beta) are validated on their base version.
-                    string versionToValidate = versionString.Contains("-rc.") || versionString.Contains("-beta.")
+                    // are validated on their base version.
+                    string versionToValidate = versionString.Contains('-')
                         ? versionString.Split('-')[0]
                         : versionString;
                     if (!NuGet.Versioning.SemanticVersion.TryParse(versionToValidate, out _))

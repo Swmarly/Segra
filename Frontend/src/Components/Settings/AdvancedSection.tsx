@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
-import { Download, FileText, Plane } from 'lucide-react';
-import { GithubIcon } from '../icons/BrandIcons';
+import { Download, FileText, Plane, BookOpen } from 'lucide-react';
+import { GithubIcon, DiscordIcon } from '../icons/BrandIcons';
 import DropdownSelect from '../DropdownSelect';
 import { Settings as SettingsType } from '../../Models/types';
 import { sendMessageToBackend } from '../../Utils/MessageUtils';
@@ -13,15 +13,20 @@ interface AdvancedSectionProps {
   settings: SettingsType;
   updateSettings: (updates: Partial<SettingsType>) => void;
   openReleaseNotesModal: (version: string | null) => void;
+  checkForUpdates: () => void;
+  // False on Linux (Flatpak): show update guidance instead of the in-app updater controls.
+  canSelfUpdate: boolean;
 }
 
 export default function AdvancedSection({
   settings,
   updateSettings,
   openReleaseNotesModal,
+  checkForUpdates,
+  canSelfUpdate,
 }: AdvancedSectionProps) {
   const appState = useAppState();
-  const { checkForUpdates, updateInfo } = useUpdate();
+  const { updateInfo } = useUpdate();
   const rowRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLSpanElement>(null);
   const [flyDistance, setFlyDistance] = useState(240);
@@ -48,6 +53,41 @@ export default function AdvancedSection({
     <>
       <div className="bg-base-300 p-4 rounded-lg space-y-4 border border-custom">
         <div className="flex flex-col gap-3">
+          {canSelfUpdate ? (
+            <div className="flex items-center justify-between">
+              <div className="flex flex-col">
+                <div className="mb-1">
+                  <span className="text-base-content">Update Channel</span>
+                </div>
+                <div className="flex items-center gap-3">
+                  <div className="w-40">
+                    <DropdownSelect
+                      size="sm"
+                      items={[
+                        { value: 'stable', label: 'Stable' },
+                        { value: 'beta', label: 'Beta' },
+                      ]}
+                      value={settings.receiveBetaUpdates ? 'beta' : 'stable'}
+                      onChange={(val) => updateSettings({ receiveBetaUpdates: val === 'beta' })}
+                    />
+                  </div>
+                </div>
+              </div>
+            </div>
+          ) : (
+            <div className="flex flex-col">
+              <div className="mb-1">
+                <span className="text-base-content">Updates</span>
+              </div>
+              <p className="text-sm text-gray-400 max-w-md">
+                Segra updates automatically through Flatpak. To update now, run{' '}
+                <code className="px-1 py-0.5 rounded bg-base-200 text-gray-300">
+                  flatpak update tv.segra.Segra
+                </code>{' '}
+                or use your software center.
+              </p>
+            </div>
+          )}
           <div className="flex flex-wrap items-center gap-2">
             <Button
               variant="primary"
@@ -58,53 +98,61 @@ export default function AdvancedSection({
               <GithubIcon size={16} aria-hidden="true" />
               <span className="inline-block">View Release Notes</span>
             </Button>
-            <Button
-              variant={isUpdateReady ? 'success' : 'primary'}
-              size="sm"
-              className="w-40 bg-base-200 hover:bg-base-300"
-              disabled={isUpdating}
-              onClick={() =>
-                isUpdateReady ? sendMessageToBackend('ApplyUpdate') : checkForUpdates()
-              }
-            >
-              {isUpdating ? (
-                <span className="loading loading-spinner loading-xs" aria-hidden="true" />
-              ) : (
-                <Download size={16} aria-hidden="true" />
-              )}
-              <span className="inline-block">
-                {isUpdating ? 'Checking...' : isUpdateReady ? 'Install Update' : 'Check for Update'}
-              </span>
-            </Button>
+            {canSelfUpdate && (
+              <Button
+                variant={isUpdateReady ? 'success' : 'primary'}
+                size="sm"
+                className="w-40 bg-base-200 hover:bg-base-300"
+                disabled={isUpdating}
+                onClick={() =>
+                  isUpdateReady ? sendMessageToBackend('ApplyUpdate') : checkForUpdates()
+                }
+              >
+                {isUpdating ? (
+                  <span className="loading loading-spinner loading-xs" aria-hidden="true" />
+                ) : (
+                  <Download size={16} aria-hidden="true" />
+                )}
+                <span className="inline-block">
+                  {isUpdating
+                    ? 'Checking...'
+                    : isUpdateReady
+                      ? 'Install Update'
+                      : 'Check for Update'}
+                </span>
+              </Button>
+            )}
           </div>
         </div>
 
-        {/* OBS Version Selection */}
-        <div className="flex items-center justify-between">
-          <div className="flex flex-col">
-            <div className="mb-1">
-              <span className="text-base-content">OBS Version</span>
-            </div>
-            <div className="w-40">
-              <DropdownSelect
-                size="sm"
-                items={[
-                  { value: '', label: 'Automatic' },
-                  ...[...appState.availableOBSVersions]
-                    .sort((a, b) => {
-                      return b.version.localeCompare(a.version, undefined, { numeric: true });
-                    })
-                    .map((v) => ({
-                      value: v.version,
-                      label: `${v.version}${v.isBeta ? ' (Beta)' : ''}`,
-                    })),
-                ]}
-                value={settings.selectedOBSVersion || ''}
-                onChange={(val) => updateSettings({ selectedOBSVersion: val || null })}
-              />
+        {/* Hidden when the recorder is fixed for this install (bundled or already downloaded) */}
+        {appState.availableOBSVersions.length > 0 && (
+          <div className="flex items-center justify-between">
+            <div className="flex flex-col">
+              <div className="mb-1">
+                <span className="text-base-content">OBS Version</span>
+              </div>
+              <div className="w-40">
+                <DropdownSelect
+                  size="sm"
+                  items={[
+                    { value: '', label: 'Automatic' },
+                    ...[...appState.availableOBSVersions]
+                      .sort((a, b) => {
+                        return b.version.localeCompare(a.version, undefined, { numeric: true });
+                      })
+                      .map((v) => ({
+                        value: v.version,
+                        label: `${v.version}${v.isBeta ? ' (Beta)' : ''}`,
+                      })),
+                  ]}
+                  value={settings.selectedOBSVersion || ''}
+                  onChange={(val) => updateSettings({ selectedOBSVersion: val || null })}
+                />
+              </div>
             </div>
           </div>
-        </div>
+        )}
 
         {/* Airplane Mode */}
         <div ref={rowRef} className="pt-4 border-t border-custom">
@@ -147,14 +195,36 @@ export default function AdvancedSection({
       {/* Version */}
       <div className="text-center mt-4 text-sm text-gray-500">
         <div className="flex flex-col items-center gap-2">
-          <Button
-            variant="primary"
-            size="sm"
-            onClick={() => sendMessageToBackend('OpenLogsLocation')}
-          >
-            <FileText className="w-4 h-4 shrink-0" aria-hidden="true" />
-            <span className="leading-none">View Logs</span>
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="primary"
+              size="sm"
+              onClick={() =>
+                sendMessageToBackend('OpenInBrowser', { Url: 'https://docs.segra.tv' })
+              }
+            >
+              <BookOpen className="w-4 h-4 shrink-0" aria-hidden="true" />
+              <span className="leading-none">Docs</span>
+            </Button>
+            <Button
+              variant="primary"
+              size="sm"
+              onClick={() =>
+                sendMessageToBackend('OpenInBrowser', { Url: 'https://discord.gg/6JbPTS9weF' })
+              }
+            >
+              <DiscordIcon size={16} className="shrink-0" aria-hidden="true" />
+              <span className="leading-none">Discord</span>
+            </Button>
+            <Button
+              variant="primary"
+              size="sm"
+              onClick={() => sendMessageToBackend('OpenLogsLocation')}
+            >
+              <FileText className="w-4 h-4 shrink-0" aria-hidden="true" />
+              <span className="leading-none">Logs</span>
+            </Button>
+          </div>
           <div>
             Segra{' '}
             {__APP_VERSION__ === 'Developer Preview' ? __APP_VERSION__ : 'v' + __APP_VERSION__}

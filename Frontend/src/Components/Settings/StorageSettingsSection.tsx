@@ -9,6 +9,7 @@ import Button from '../Button';
 import MigrationFlow from '../MigrationFlow';
 import { useAppState } from '../../Context/AppStateContext';
 import { useContentMigration } from '../../Context/ContentMigrationContext';
+import StorageUsageMeter from './StorageUsageMeter';
 
 const normalizePath = (path: string) => path.replace(/\\/g, '/').replace(/\/+$/, '');
 
@@ -39,10 +40,16 @@ export default function StorageSettingsSection({
   const { isMigrating } = useContentMigration();
   const [localStorageLimit, setLocalStorageLimit] = useState<string>(String(settings.storageLimit));
   const { openModal, closeModal } = useModal();
+  const driveUsedGb = appState.recordingDriveUsedGb;
+  const driveFreeGb = appState.recordingDriveFreeGb;
 
   useEffect(() => {
     setLocalStorageLimit(String(settings.storageLimit));
   }, [settings.storageLimit]);
+
+  useEffect(() => {
+    sendMessageToBackend('RefreshStorageStats');
+  }, []);
 
   // Content whose video file is stored outside the current recording path (left behind after
   // the recording path was changed). The migration button below offers to consolidate it.
@@ -205,6 +212,17 @@ export default function StorageSettingsSection({
             className="input input-bordered bg-base-200 w-full block outline-none focus:border-base-400"
           />
         </div>
+      </div>
+
+      <div className="mt-4">
+        <StorageUsageMeter
+          content={appState.content}
+          contentFolder={settings.contentFolder}
+          storageLimitGb={settings.storageLimit}
+          usedGb={appState.currentFolderSizeGb}
+          driveUsedGb={driveUsedGb}
+          driveFreeGb={driveFreeGb}
+        />
       </div>
 
       {/* Migrate content stored outside the recording path */}

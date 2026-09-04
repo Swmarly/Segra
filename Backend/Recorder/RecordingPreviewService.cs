@@ -18,7 +18,6 @@ namespace Segra.Backend.Recorder
     {
         private const uint PreviewWidth = 480;
         private const uint PreviewHeight = 270;
-        private const int TargetFps = 10;
         private const long JpegQuality = 65L;
 
         private static readonly object _lock = new();
@@ -27,8 +26,24 @@ namespace Segra.Backend.Recorder
         private static uint _recordingFps;
         private static bool _recordingActive;
         private static bool _enabled;
-        private static readonly ImageCodecInfo? _jpegCodec =
-            ImageCodecInfo.GetImageEncoders().FirstOrDefault(c => c.MimeType == "image/jpeg");
+        // The JPEG preview uses System.Drawing/GDI+, which needs libgdiplus on Linux. Resolve it
+        // lazily and defensively so a missing GDI+ never throws from this type's static constructor
+        // (which would break OnRecordingStarted/OnRecordingStopped and thus every recording). When
+        // null, the preview simply cannot be enabled; recording is unaffected.
+        private static readonly ImageCodecInfo? _jpegCodec = TryGetJpegCodec();
+
+        private static ImageCodecInfo? TryGetJpegCodec()
+        {
+            try
+            {
+                return ImageCodecInfo.GetImageEncoders().FirstOrDefault(c => c.MimeType == "image/jpeg");
+            }
+            catch (Exception ex)
+            {
+                Log.Warning($"Recording preview unavailable (no JPEG/GDI+ codec): {ex.Message}");
+                return null;
+            }
+        }
 
         /// <summary>
         /// Whether the preview is currently streaming frames.
@@ -36,7 +51,7 @@ namespace Segra.Backend.Recorder
         public static bool IsEnabled => _enabled;
 
         /// <summary>
-        /// Called when a recording starts. Caches the recording fps so a later toggle can pick the right divisor.
+        /// Called when a recording starts. Caches the recording fps for logging.
         /// Preview always starts disabled; the user toggles it via the keybind.
         /// </summary>
         public static void OnRecordingStarted(uint recordingFps)
@@ -92,9 +107,14 @@ namespace Segra.Backend.Recorder
 
         private static bool StartSubscriptionLocked()
         {
+            if (_jpegCodec == null)
+            {
+                Log.Warning("Cannot enable recording preview: no JPEG encoder available on this platform.");
+                return false;
+            }
+
             DisposeSubscriptionLocked();
 
-            uint divisor = _recordingFps == 0 ? 1u : Math.Max(1u, _recordingFps / (uint)TargetFps);
             try
             {
                 _subscription = Obs.SubscribeRawVideo(
@@ -102,9 +122,9 @@ namespace Segra.Backend.Recorder
                     PreviewWidth,
                     PreviewHeight,
                     OnFrame,
-                    frameRateDivisor: divisor);
-                Log.Information("Recording preview enabled ({W}x{H}, divisor={Divisor} from {Fps}fps)",
-                    PreviewWidth, PreviewHeight, divisor, _recordingFps);
+                    frameRateDivisor: 1);
+                Log.Information("Recording preview enabled ({W}x{H} @ {Fps}fps)",
+                    PreviewWidth, PreviewHeight, _recordingFps);
                 return true;
             }
             catch (Exception ex)

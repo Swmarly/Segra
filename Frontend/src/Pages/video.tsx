@@ -3,11 +3,10 @@ import { Content, BookmarkType, Segment, Bookmark } from '../Models/types';
 import { sendMessageToBackend } from '../Utils/MessageUtils';
 import { useSettings, useSettingsUpdater } from '../Context/SettingsContext';
 import { useAppState } from '../Context/AppStateContext';
-import { openFileLocation } from '../Utils/FileUtils';
+import { openFileLocation, contentTypeToFolderName } from '../Utils/FileUtils';
 import { useSelectedVideo } from '../Context/SelectedVideoContext';
 import { DndProvider } from 'react-dnd';
 import { HTML5Backend } from 'react-dnd-html5-backend';
-import { useAuth } from '../Hooks/useAuth.tsx';
 import { useSegments } from '../Context/SegmentsContext';
 import { useUploads } from '../Context/UploadContext';
 import { useModal } from '../Context/ModalContext';
@@ -42,11 +41,14 @@ import {
   Headphones,
   Copy,
   Check,
+  ChevronDown,
 } from 'lucide-react';
 import SegmentCard from '../Components/SegmentCard';
 import { useAudioTracks } from '../Hooks/useAudioTracks';
 import { AnimatePresence, motion } from 'framer-motion';
 import Button from '../Components/Button';
+import { useDeleteConfirmation } from '../Hooks/useDeleteConfirmation';
+import AudioTrackIcon from '../Components/AudioTrackIcon';
 
 const Crosshair2Dot = React.forwardRef<SVGSVGElement, React.ComponentProps<typeof Icon>>(
   (props, ref) => <Icon {...props} ref={ref} iconNode={crosshair2Dot} />,
@@ -181,7 +183,6 @@ function TopInfoBar({ video }: { video: Content }) {
           <a
             className="text-gray-300 cursor-pointer hover:underline hover:text-gray-200 truncate"
             onClick={() => openFileLocation(video.filePath)}
-            title={video.filePath}
           >
             {video.filePath}
           </a>
@@ -209,9 +210,9 @@ export default function VideoComponent({ video }: { video: Content }) {
   const settings = useSettings();
   const appState = useAppState();
   const updateSettings = useSettingsUpdater();
-  const { session } = useAuth();
   const { uploads } = useUploads();
   const { openModal, closeModal } = useModal();
+  const confirmDelete = useDeleteConfirmation();
   const {
     segments,
     addSegment,
@@ -250,7 +251,16 @@ export default function VideoComponent({ video }: { video: Content }) {
 
   // Video state
   const [currentTime, setCurrentTime] = useState(0);
-  const [duration, setDuration] = useState(0);
+  // Seed duration from content metadata so the timeline and waveform render
+  // immediately; the video element refines it on loadedmetadata.
+  const metadataDuration = useMemo(() => {
+    const seconds = timeStringToSeconds(video.duration);
+    return Number.isFinite(seconds) && seconds > 0 ? seconds : 0;
+  }, [video.duration]);
+  const [duration, setDuration] = useState(metadataDuration);
+  useEffect(() => {
+    setDuration(metadataDuration);
+  }, [video.id, metadataDuration]);
   const [zoom, setZoom] = useState(1);
 
   // Scale and pan state for zooming into the video element itself
@@ -536,11 +546,14 @@ export default function VideoComponent({ video }: { video: Content }) {
   );
   const [resizingSegmentId, setResizingSegmentId] = useState<number | null>(null);
   const [resizeDirection, setResizeDirection] = useState<'start' | 'end' | null>(null);
+  // Read at resize-end (the mouseup handler's effect doesn't depend on the state).
+  const resizeDirectionRef = useRef<'start' | 'end' | null>(null);
   const resizeCandidateRef = useRef<{
     id: number;
     direction: 'start' | 'end';
     startClientX: number;
   } | null>(null);
+  const resizePlaybackRef = useRef<{ wasPlaying: boolean; cursorTime: number } | null>(null);
 
   const videoWrapperClassName = [
     'block relative w-full',
@@ -564,6 +577,10 @@ export default function VideoComponent({ video }: { video: Content }) {
     () => [...segments].sort((a, b) => a.startTime - b.startTime),
     [segments],
   );
+  const totalSegmentsDuration = useMemo(
+    () => segments.reduce((sum, s) => sum + Math.max(0, s.endTime - s.startTime), 0),
+    [segments],
+  );
 
   // Track in-flight thumbnail requests to avoid stale overwrites
   const thumbnailReqTokenRef = useRef<Map<number, number>>(new Map());
@@ -574,8 +591,9 @@ export default function VideoComponent({ video }: { video: Content }) {
     // Read the latest segment from state (may be undefined immediately after add)
     const current = segmentsRef.current.find((s) => s.id === id);
 
-    // Mark loading on latest state if present (new segment already has isLoading=true)
-    if (current) {
+    // Only show the loading spinner for the first fetch. When a thumbnail
+    // already exists, keep it visible and let the card crossfade to the new one.
+    if (current && !current.thumbnailDataUrl) {
       updateSegment({ ...current, isLoading: true });
     }
 
@@ -795,7 +813,12 @@ export default function VideoComponent({ video }: { video: Content }) {
       const now = performance.now();
       const t = vid.currentTime;
 
-      if (now - lastUiUpdate >= UI_TIME_UPDATE_INTERVAL_MS || vid.paused || vid.ended) {
+      // While resizing a segment the video previews the dragged edge; the playhead must not
+      // follow it. Outside a resize, throttle React state updates while keeping audio checks live.
+      if (
+        resizeDirectionRef.current == null &&
+        (now - lastUiUpdate >= UI_TIME_UPDATE_INTERVAL_MS || vid.paused || vid.ended)
+      ) {
         setCurrentTime(t);
         lastUiUpdate = now;
       }
@@ -969,7 +992,7 @@ export default function VideoComponent({ video }: { video: Content }) {
 
       // Calculate new zoom level
       const zoomFactor = e.deltaY < 0 ? 1.2 : 0.8;
-      const newZoom = Math.min(Math.max(wheelZoomRef.current * zoomFactor, 1), 500);
+      const newZoom = Math.min(Math.max(wheelZoomRef.current * zoomFactor, 1), 1000);
 
       // Update zoom ref immediately
       wheelZoomRef.current = newZoom;
@@ -1008,7 +1031,7 @@ export default function VideoComponent({ video }: { video: Content }) {
 
     // Compute target zoom
     const newZoom = increment ? zoom * 1.5 : zoom * 0.5;
-    const targetZoom = Math.min(Math.max(newZoom, 1), 500);
+    const targetZoom = Math.min(Math.max(newZoom, 1), 1000);
 
     // Cancel any running animation
     cancelAnimationFrame(zoomAnimationRef.current);
@@ -1301,6 +1324,11 @@ export default function VideoComponent({ video }: { video: Content }) {
     setTimeout(() => setIsInteracting(false), 0);
   };
 
+  useEffect(() => {
+    document.body.classList.toggle('dragging-playhead', isDragging);
+    return () => document.body.classList.remove('dragging-playhead');
+  }, [isDragging]);
+
   // Format time in seconds to "HH:MM:SS" when needed, otherwise "MM:SS"
   const formatTime = (time: number) => {
     const totalSeconds = Math.max(0, Math.floor(time));
@@ -1338,22 +1366,47 @@ export default function VideoComponent({ video }: { video: Content }) {
     return { majorTicks, minorTicks };
   }, [duration, pixelsPerSecond]);
 
+  // Grab the frame currently shown in the <video> as an instant thumbnail.
+  // Returns undefined if the frame isn't ready or the canvas would be tainted.
+  const captureCurrentFrame = (): string | undefined => {
+    const v = videoRef.current;
+    if (!v || !v.videoWidth || !v.videoHeight || v.readyState < 2) return undefined;
+    try {
+      const targetWidth = 480;
+      const scale = Math.min(1, targetWidth / v.videoWidth);
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.round(v.videoWidth * scale);
+      canvas.height = Math.round(v.videoHeight * scale);
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return undefined;
+      ctx.drawImage(v, 0, 0, canvas.width, canvas.height);
+      return canvas.toDataURL('image/jpeg', 0.7);
+    } catch {
+      return undefined;
+    }
+  };
+
   // Add a new segment at the current video position
   const handleAddSegment = async () => {
     if (!videoRef.current) return;
     const start = currentTime;
     // Default to 10% of the visible timeline, capped at 2 minutes and clamped to video duration
     const visibleDuration = duration / zoom;
-    const segmentDuration = Math.min(120, Math.max(6, visibleDuration * 0.1));
+    const segmentDuration = Math.min(120, Math.max(1, visibleDuration * 0.1));
     const end = Math.min(start + segmentDuration, duration);
+
+    // Use the frame already on screen as an instant thumbnail; the server
+    // thumbnail crossfades in once fetched.
+    const instantThumbnail = captureCurrentFrame();
 
     const newSegment: Segment = {
       id: Date.now(),
+      contentId: video.id,
       type: video.type,
       startTime: start,
       endTime: end,
-      thumbnailDataUrl: undefined,
-      isLoading: true,
+      thumbnailDataUrl: instantThumbnail,
+      isLoading: !instantThumbnail,
       fileName: video.fileName,
       filePath: video.filePath,
       game: video.game,
@@ -1373,15 +1426,19 @@ export default function VideoComponent({ video }: { video: Content }) {
             : undefined,
     };
     addSegment(newSegment);
-    // Kick off thumbnail generation; uses latest state and guards against stale overwrites
-    refreshSegmentThumbnail(newSegment);
+    // The instant frame capture is good enough for the initial thumbnail, so
+    // only fall back to ffmpeg generation if the capture failed. Later moves
+    // and resizes regenerate via ffmpeg as usual.
+    if (!instantThumbnail) {
+      refreshSegmentThumbnail(newSegment);
+    }
   };
 
   // Create a clip from current segments
   const handleCreateClip = () => {
     if (segments.length === 0) {
       setShowNoSegmentsIndicator(true);
-      setTimeout(() => setShowNoSegmentsIndicator(false), 2000);
+      setTimeout(() => setShowNoSegmentsIndicator(false), 1300);
       return;
     }
 
@@ -1389,14 +1446,9 @@ export default function VideoComponent({ video }: { video: Content }) {
       OutputMode: clipOutputMode,
       Segments: segments.map((s) => ({
         id: s.id,
-        type: s.type,
-        fileName: s.fileName,
-        filePath: s.filePath,
-        game: s.game,
-        title: s.title,
+        contentId: s.contentId,
         startTime: s.startTime,
         endTime: s.endTime,
-        igdbId: s.igdbId,
         mutedAudioTracks: s.mutedAudioTracks,
         audioTrackVolumes: s.audioTrackVolumes,
       })),
@@ -1406,6 +1458,9 @@ export default function VideoComponent({ video }: { video: Content }) {
 
   const handleSegmentDrag = (e: React.MouseEvent<HTMLDivElement>) => {
     if (!scrollContainerRef.current) return;
+    // Grabbing a resize handle bubbles into the segment body and arms the drag
+    // candidate too; don't let a resize turn into a drag.
+    if (resizingSegmentId != null || resizeCandidateRef.current != null) return;
     if ((e.buttons & 1) !== 1 && dragState.id == null) return;
     const rect = scrollContainerRef.current.getBoundingClientRect();
     const dragPos = e.clientX - rect.left + scrollContainerRef.current.scrollLeft;
@@ -1455,7 +1510,11 @@ export default function VideoComponent({ video }: { video: Content }) {
       if (dragState.id !== null) {
         handleSegmentDragEnd();
       }
-      if (resizingSegmentId !== null) {
+      if (
+        resizingSegmentId !== null ||
+        resizeDirectionRef.current != null ||
+        resizePlaybackRef.current != null
+      ) {
         handleSegmentResizeEnd();
       }
       dragCandidateRef.current = null;
@@ -1591,6 +1650,13 @@ export default function VideoComponent({ video }: { video: Content }) {
   ) => {
     // Do not stop propagation so timeline click can still happen
     resizeCandidateRef.current = { id, direction, startClientX: e.clientX };
+    // Freeze playback at the grab point so the cursor restore isn't drifted
+    // by playback continuing before the drag threshold is crossed
+    if (!resizePlaybackRef.current && videoRef.current) {
+      const wasPlaying = !videoRef.current.paused;
+      resizePlaybackRef.current = { wasPlaying, cursorTime: videoRef.current.currentTime };
+      if (wasPlaying) videoRef.current.pause();
+    }
   };
 
   const handleSegmentResize = (e: React.MouseEvent<HTMLDivElement>) => {
@@ -1607,6 +1673,7 @@ export default function VideoComponent({ video }: { video: Content }) {
       if (delta <= 3) return; // not enough movement
       setResizingSegmentId(cand.id);
       setResizeDirection(cand.direction);
+      resizeDirectionRef.current = cand.direction;
       setIsInteracting(true);
     }
 
@@ -1627,23 +1694,41 @@ export default function VideoComponent({ video }: { video: Content }) {
     latestDraggedSegmentRef.current = updatedSegment;
     updateSegment(updatedSegment);
 
-    // While resizing, keep the video time at the active edge and update marker state
+    // While resizing, preview the frame at the active edge; the playhead stays put
     const edgeTime = activeDir === 'start' ? updatedSegment.startTime : updatedSegment.endTime;
     if (videoRef.current) {
-      const clamped = Math.max(0, Math.min(edgeTime, duration));
-      videoRef.current.currentTime = clamped;
+      videoRef.current.currentTime = Math.max(0, Math.min(edgeTime, duration));
     }
-    setCurrentTime(edgeTime);
   };
 
   const handleSegmentResizeEnd = () => {
+    const direction = resizeDirectionRef.current;
+    resizeDirectionRef.current = null;
     setResizingSegmentId(null);
     setResizeDirection(null);
     resizeCandidateRef.current = null;
-    setIsInteracting(false);
-    if (latestDraggedSegmentRef.current) {
-      const seg = latestDraggedSegmentRef.current;
-      latestDraggedSegmentRef.current = null;
+    setTimeout(() => setIsInteracting(false), 0);
+    const seg = latestDraggedSegmentRef.current;
+    latestDraggedSegmentRef.current = null;
+    const playback = resizePlaybackRef.current;
+    resizePlaybackRef.current = null;
+    if (playback && videoRef.current) {
+      if (direction === 'start' && seg) {
+        // Moving the start edge lands the playhead on the new start
+        const t = Math.max(0, Math.min(seg.startTime, duration));
+        videoRef.current.currentTime = t;
+        setCurrentTime(t);
+      } else if (direction != null) {
+        // Moving the end edge leaves the playhead where it was
+        videoRef.current.currentTime = playback.cursorTime;
+      }
+      // No direction: simple click on a handle; the click-through seek decides
+      if (playback.wasPlaying) {
+        void videoRef.current.play();
+      }
+    }
+    // Thumbnail is the start frame, so only refresh when the start edge moved.
+    if (seg && direction === 'start') {
       void refreshSegmentThumbnail(seg);
     }
   };
@@ -1663,16 +1748,7 @@ export default function VideoComponent({ video }: { video: Content }) {
 
   // Get audio waveform URL - waveforms are stored in AppData
   const getWaveformPath = (): string => {
-    // Map type to folder name for waveforms in AppData
-    const folderName =
-      video.type === 'Session'
-        ? 'Full Sessions'
-        : video.type === 'Buffer'
-          ? 'Replay Buffers'
-          : video.type === 'Clip'
-            ? 'Clips'
-            : 'Highlights';
-    const waveformPath = `${appState.cacheFolder}/waveforms/${folderName}/${video.fileName}.peaks.json`;
+    const waveformPath = `${appState.cacheFolder}/waveforms/${contentTypeToFolderName(video.type)}/${video.id}.peaks.json`;
     return `http://localhost:2222/api/content?input=${encodeURIComponent(waveformPath)}&type=${video.type.toLowerCase()}`;
   };
 
@@ -1690,13 +1766,10 @@ export default function VideoComponent({ video }: { video: Content }) {
         onClose={closeModal}
         onUpload={(title, description, visibility) => {
           const parameters = {
-            FilePath: video.filePath,
-            JWT: session?.access_token,
-            Game: video.game,
+            Id: video.id,
             Title: title,
             Description: description,
             Visibility: visibility,
-            IgdbId: video.igdbId?.toString(),
           };
 
           sendMessageToBackend('UploadContent', parameters);
@@ -1706,12 +1779,185 @@ export default function VideoComponent({ video }: { video: Content }) {
   };
 
   const [fileCopied, setFileCopied] = useState(false);
+  const [compressCopyProgress, setCompressCopyProgress] = useState<number | null>(null);
 
   const handleCopyFile = () => {
     sendMessageToBackend('CopyFileToClipboard', { FilePath: video.filePath });
     setFileCopied(true);
     setTimeout(() => setFileCopied(false), 1500);
   };
+
+  const [copyMenuOpen, setCopyMenuOpen] = useState(false);
+  const copyMenuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!copyMenuOpen) return;
+    const onDocMouseDown = (e: MouseEvent) => {
+      if (!copyMenuRef.current?.contains(e.target as Node)) setCopyMenuOpen(false);
+    };
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setCopyMenuOpen(false);
+    };
+    document.addEventListener('mousedown', onDocMouseDown);
+    document.addEventListener('keydown', onKeyDown);
+    return () => {
+      document.removeEventListener('mousedown', onDocMouseDown);
+      document.removeEventListener('keydown', onKeyDown);
+    };
+  }, [copyMenuOpen]);
+
+  // Last backend progress update plus its estimated speed (% per ms), used to
+  // extrapolate between the sparse ffmpeg updates
+  const compressRateRef = useRef<{ progress: number; time: number; rate: number } | null>(null);
+
+  const handleCopyCompressed = (maxSizeMb: number) => {
+    setCopyMenuOpen(false);
+    // The dropdown also stays visible via :focus-within, so drop focus too
+    (document.activeElement as HTMLElement | null)?.blur();
+    if (compressCopyProgress !== null) return;
+    // time 0 is fine: extrapolation contributes nothing while rate is 0
+    compressRateRef.current = { progress: 0, time: 0, rate: 0 };
+    setCompressCopyProgress(0);
+    sendMessageToBackend('CopyCompressedFileToClipboard', {
+      FilePath: video.filePath,
+      MaxSizeMb: maxSizeMb,
+    });
+  };
+
+  useEffect(() => {
+    const handler = (event: CustomEvent<{ method: string; content: any }>) => {
+      const { method, content } = event.detail;
+      if (method !== 'ClipboardCompressionProgress' || content?.filePath !== video.filePath) return;
+      if (content.status === 'compressing') {
+        const progress = content.progress ?? 0;
+        const now = performance.now();
+        const prev = compressRateRef.current;
+        const rate =
+          prev && prev.time > 0 && progress > prev.progress && now > prev.time
+            ? (progress - prev.progress) / (now - prev.time)
+            : (prev?.rate ?? 0);
+        compressRateRef.current = { progress, time: now, rate };
+        setCompressCopyProgress(progress);
+      } else {
+        compressRateRef.current = null;
+        setCompressCopyProgress(null);
+        if (content.status === 'done') {
+          setFileCopied(true);
+          setTimeout(() => setFileCopied(false), 1500);
+        }
+      }
+    };
+    window.addEventListener('websocket-message', handler as EventListener);
+    return () => window.removeEventListener('websocket-message', handler as EventListener);
+  }, [video.filePath]);
+
+  // Ease the shown percent toward the extrapolated progress: catches up fast
+  // when far behind, keeps crawling between updates, never passes 99 early
+  const [displayedCopyProgress, setDisplayedCopyProgress] = useState(0);
+  useEffect(() => {
+    if (compressCopyProgress === null) {
+      setDisplayedCopyProgress(0);
+      return;
+    }
+    let rafId = 0;
+    let last = performance.now();
+    const tick = (now: number) => {
+      const dt = now - last;
+      last = now;
+      const known = compressRateRef.current;
+      const target = known
+        ? Math.min(99, known.progress + known.rate * (now - known.time))
+        : compressCopyProgress;
+      setDisplayedCopyProgress((shown) => {
+        const gap = target - shown;
+        if (gap <= 0) return shown;
+        return Math.min(target, shown + Math.max(gap * (dt / 300), dt / 200));
+      });
+      rafId = requestAnimationFrame(tick);
+    };
+    rafId = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(rafId);
+  }, [compressCopyProgress]);
+
+  const copySizeOptions = [...(settings.copyCompressSizesMb ?? [])]
+    .sort((a, b) => a - b)
+    .filter((mb) => mb > 0 && mb * 1024 < video.fileSizeKb);
+
+  const copyButtons = (
+    <div className="join">
+      <Button
+        variant="primary"
+        size="sm"
+        className="h-10 hover:text-accent join-item"
+        onClick={handleCopyFile}
+      >
+        <label className={`swap overflow-hidden justify-center ${fileCopied ? 'swap-active' : ''}`}>
+          <div className="swap-off">
+            <Copy className="w-5 h-5" />
+          </div>
+          <div className="swap-on">
+            <Check className="w-5 h-5" />
+          </div>
+        </label>
+        <span>Copy</span>
+      </Button>
+      {copySizeOptions.length > 0 && (
+        <div
+          ref={copyMenuRef}
+          className={`dropdown dropdown-top dropdown-end ${copyMenuOpen ? 'dropdown-open' : ''}`}
+        >
+          <Button
+            variant="primary"
+            size="sm"
+            className={`h-10 hover:text-accent join-item border-l-0 px-2 ${compressCopyProgress !== null ? 'pointer-events-none' : ''}`}
+            aria-label="Copy as compressed file"
+            aria-expanded={copyMenuOpen}
+            onMouseDown={(e) => {
+              e.preventDefault();
+              if (compressCopyProgress !== null) return;
+              setCopyMenuOpen((open) => !open);
+            }}
+          >
+            <motion.span
+              className="inline-flex items-center justify-center overflow-hidden"
+              animate={{ width: compressCopyProgress !== null ? 30 : 16 }}
+              transition={{ type: 'spring', stiffness: 300, damping: 25 }}
+            >
+              {compressCopyProgress !== null ? (
+                <span className="text-xs tabular-nums whitespace-nowrap">
+                  {String(Math.floor(displayedCopyProgress)).padStart(2, '0')}%
+                </span>
+              ) : (
+                <motion.span
+                  aria-hidden
+                  className="inline-flex items-center"
+                  animate={{ rotate: copyMenuOpen ? 180 : 0 }}
+                  transition={{ type: 'spring', stiffness: 300, damping: 20 }}
+                >
+                  <ChevronDown className="w-4 h-4" />
+                </motion.span>
+              )}
+            </motion.span>
+          </Button>
+          <ul
+            tabIndex={0}
+            className="dropdown-content menu bg-base-300 border border-base-400 rounded-lg z-[100] w-28 p-1 mb-1 shadow"
+          >
+            {copySizeOptions.map((mb) => (
+              <li key={mb}>
+                <button
+                  className="text-gray-300 text-sm hover:text-primary"
+                  onClick={() => handleCopyCompressed(mb)}
+                >
+                  {mb} MB
+                </button>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+    </div>
+  );
 
   const [selectedBookmarkTypes, setSelectedBookmarkTypes] = useState<Set<BookmarkType>>(
     new Set(Object.values(BookmarkType)),
@@ -1778,10 +2024,9 @@ export default function VideoComponent({ video }: { video: Content }) {
 
     // Send message to backend to add bookmark
     sendMessageToBackend('AddBookmark', {
-      FilePath: video.filePath,
+      ContentId: video.id,
       Type: bookmarkType,
       Time: formattedTime,
-      ContentType: video.type,
       Id: bookmarkId,
     });
   };
@@ -1791,20 +2036,42 @@ export default function VideoComponent({ video }: { video: Content }) {
     const bookmarkIndex = video.bookmarks.findIndex((b) => b.id === bookmarkId);
 
     if (bookmarkIndex !== -1) {
-      // Remove the bookmark from the array
-      video.bookmarks.splice(bookmarkIndex, 1);
+      const bookmark = video.bookmarks[bookmarkIndex];
+      confirmDelete({
+        title: 'Delete bookmark?',
+        description: `Delete the ${bookmark.type.toLowerCase()} bookmark at ${bookmark.time}? This action cannot be undone.`,
+        onConfirm: () => {
+          video.bookmarks.splice(bookmarkIndex, 1);
 
-      // Force a re-render to update the UI
-      const bookmarks = [...video.bookmarks];
-      video.bookmarks = bookmarks;
+          const bookmarks = [...video.bookmarks];
+          video.bookmarks = bookmarks;
 
-      // Send message to backend to delete the bookmark
-      sendMessageToBackend('DeleteBookmark', {
-        FilePath: video.filePath,
-        ContentType: video.type,
-        Id: bookmarkId,
+          sendMessageToBackend('DeleteBookmark', {
+            ContentId: video.id,
+            Id: bookmarkId,
+          });
+        },
       });
     }
+  };
+
+  const handleDeleteSegment = (segmentId: number) => {
+    confirmDelete({
+      title: 'Delete segment?',
+      description: 'Remove this segment from the clip? This action cannot be undone.',
+      onConfirm: () => removeSegment(segmentId),
+    });
+  };
+
+  const handleClearSegments = () => {
+    if (segments.length === 0) return;
+
+    confirmDelete({
+      title: 'Delete all segments?',
+      description: `Remove all ${segments.length} ${segments.length === 1 ? 'segment' : 'segments'} from the clip? This action cannot be undone.`,
+      confirmText: 'Delete all',
+      onConfirm: clearAllSegments,
+    });
   };
 
   // Handle volume change
@@ -1877,6 +2144,7 @@ export default function VideoComponent({ video }: { video: Content }) {
             <div className={videoWrapperClassName}>
               <video
                 autoPlay
+                crossOrigin="anonymous"
                 className="w-full h-full object-contain"
                 src={getVideoPath()}
                 ref={videoRef}
@@ -1994,6 +2262,10 @@ export default function VideoComponent({ video }: { video: Content }) {
                                   checked={!isMuted}
                                   onChange={() => audioTracks.toggleTrackMute(track.index)}
                                   className="checkbox checkbox-primary checkbox-xs shrink-0"
+                                />
+                                <AudioTrackIcon
+                                  type={video.audioTrackTypes?.[track.index]}
+                                  className="h-3.5 w-3.5 shrink-0 text-white/60"
                                 />
                                 <span className="text-xs text-white/80 truncate select-none">
                                   {track.name.replace(' (Default)', '')}
@@ -2188,9 +2460,9 @@ export default function VideoComponent({ video }: { video: Content }) {
                 overflow: 'hidden',
               }}
             >
-              <AnimatePresence initial={false}>
-                {bookmarksReady &&
-                  filteredBookmarks.map((bookmark, index) => {
+              {bookmarksReady && (
+                <AnimatePresence initial={false}>
+                  {filteredBookmarks.map((bookmark, index) => {
                     const timeInSeconds = timeStringToSeconds(bookmark.time);
                     const leftPos = timeInSeconds * pixelsPerSecond;
                     const Icon =
@@ -2228,7 +2500,8 @@ export default function VideoComponent({ video }: { video: Content }) {
                       </motion.div>
                     );
                   })}
-              </AnimatePresence>
+                </AnimatePresence>
+              )}
               {minorTicks.map((tickTime) => {
                 if (tickTime >= duration) return null;
                 const leftPos = tickTime * pixelsPerSecond;
@@ -2287,7 +2560,7 @@ export default function VideoComponent({ video }: { video: Content }) {
                 return (
                   <div
                     key={seg.id}
-                    className={`absolute top-0 left-0 h-full cursor-move ${hidden ? 'hidden' : ''} transition-colors overflow-hidden rounded-r-sm rounded-l-sm shadow-md
+                    className={`absolute top-0 left-0 h-full cursor-move ${hidden ? 'hidden' : ''} transition-colors rounded-r-sm rounded-l-sm shadow-md
                                                 bg-primary/20 border border-primary/20`}
                     style={{ left: `${left}px`, width: `${width}px` }}
                     onMouseEnter={() => {
@@ -2299,11 +2572,11 @@ export default function VideoComponent({ video }: { video: Content }) {
                     onMouseDown={(e) => handleSegmentMouseDown(e, seg.id)}
                     onContextMenu={(e) => {
                       e.preventDefault();
-                      removeSegment(seg.id);
+                      handleDeleteSegment(seg.id);
                     }}
                   >
-                    <div className="absolute left-0 top-0 h-full w-[4px] bg-accent/80 rounded-l-sm pointer-events-none" />
-                    <div className="absolute right-0 top-0 h-full w-[4px] bg-accent/80 rounded-r-sm pointer-events-none" />
+                    <div className="absolute left-0 top-0 h-full w-[3px] bg-accent/80 rounded-l-sm pointer-events-none" />
+                    <div className="absolute right-0 top-0 h-full w-[3px] bg-accent/80 rounded-r-sm pointer-events-none" />
 
                     {audioTracks.isMultiTrack &&
                       video.audioTrackNames &&
@@ -2347,25 +2620,23 @@ export default function VideoComponent({ video }: { video: Content }) {
                       )}
 
                     <div
-                      className="absolute top-0 -left-[8px] w-[18px] h-full bg-transparent cursor-col-resize pointer-events-auto"
+                      className="absolute top-0 -left-[7px] z-20 w-[14px] h-full bg-transparent cursor-col-resize pointer-events-auto"
                       onMouseDown={(e) => handleResizeMouseDown(e, seg.id, 'start')}
                       aria-label="Resize segment start"
                     />
                     <div
-                      className="absolute top-0 -right-[8px] w-[18px] h-full bg-transparent cursor-col-resize pointer-events-auto"
+                      className="absolute top-0 -right-[7px] z-20 w-[14px] h-full bg-transparent cursor-col-resize pointer-events-auto"
                       onMouseDown={(e) => handleResizeMouseDown(e, seg.id, 'end')}
                       aria-label="Resize segment end"
                     />
                   </div>
                 );
               })}
-              {resizingSegmentId == null && (
-                <div
-                  className="absolute top-0 left-0 z-10 w-1 h-full -translate-x-1/2 rounded-sm shadow cursor-pointer marker bg-accent"
-                  style={{ left: `${currentTime * pixelsPerSecond}px` }}
-                  onMouseDown={handleMarkerDragStart}
-                />
-              )}
+              <div
+                className="absolute top-0 left-0 z-10 w-1 h-full -translate-x-1/2 rounded-sm shadow cursor-pointer marker bg-accent"
+                style={{ left: `${currentTime * pixelsPerSecond}px` }}
+                onMouseDown={handleMarkerDragStart}
+              />
             </div>
           </div>
           {timelineAudioMenu &&
@@ -2417,6 +2688,10 @@ export default function VideoComponent({ video }: { video: Content }) {
                               updateSegment({ ...menuSeg, mutedAudioTracks: newMuted });
                             }}
                             className="checkbox checkbox-primary checkbox-xs shrink-0"
+                          />
+                          <AudioTrackIcon
+                            type={video.audioTrackTypes?.[i]}
+                            className="h-3.5 w-3.5 shrink-0 text-white/60"
                           />
                           <span className="text-xs text-white/80 truncate">
                             {name.replace(' (Default)', '')}
@@ -2496,24 +2771,7 @@ export default function VideoComponent({ video }: { video: Content }) {
                       <span>Upload</span>
                     </Button>
                   )}
-                  <Button
-                    variant="primary"
-                    size="sm"
-                    className="h-10 hover:text-accent"
-                    onClick={handleCopyFile}
-                  >
-                    <label
-                      className={`swap overflow-hidden justify-center ${fileCopied ? 'swap-active' : ''}`}
-                    >
-                      <div className="swap-off">
-                        <Copy className="w-5 h-5" />
-                      </div>
-                      <div className="swap-on">
-                        <Check className="w-5 h-5" />
-                      </div>
-                    </label>
-                    <span>Copy</span>
-                  </Button>
+                  {copyButtons}
                 </>
               )}
               {(video.type === 'Session' || video.type === 'Buffer') && (
@@ -2534,42 +2792,18 @@ export default function VideoComponent({ video }: { video: Content }) {
                       </span>
                     </span>
                   </Button>
-                  <div className="indicator">
-                    <Button
-                      variant="primary"
-                      size="sm"
-                      className="h-10 gap-1 hover:text-accent"
-                      onClick={handleAddSegment}
-                    >
-                      {showNoSegmentsIndicator && (
-                        <span className="indicator-item badge badge-sm badge-primary animate-pulse"></span>
-                      )}
-                      <SquarePlus className="w-5 h-5" />
-                      <span>Add Segment</span>
-                    </Button>
-                  </div>
+                  <Button
+                    variant="primary"
+                    size="sm"
+                    className={`h-10 gap-1 hover:text-accent ${showNoSegmentsIndicator ? 'segment-hint-flash' : ''}`}
+                    onClick={handleAddSegment}
+                  >
+                    <SquarePlus className="w-5 h-5" />
+                    <span>Add Segment</span>
+                  </Button>
                 </>
               )}
-              {video.type === 'Buffer' && (
-                <Button
-                  variant="primary"
-                  size="sm"
-                  className="h-10 hover:text-accent"
-                  onClick={handleCopyFile}
-                >
-                  <label
-                    className={`swap overflow-hidden justify-center ${fileCopied ? 'swap-active' : ''}`}
-                  >
-                    <div className="swap-off">
-                      <Copy className="w-5 h-5" />
-                    </div>
-                    <div className="swap-on">
-                      <Check className="w-5 h-5" />
-                    </div>
-                  </label>
-                  <span>Copy</span>
-                </Button>
-              )}
+              {video.type === 'Buffer' && copyButtons}
             </div>
 
             <div className="flex items-center gap-3">
@@ -2617,7 +2851,7 @@ export default function VideoComponent({ video }: { video: Content }) {
                 <button
                   onClick={() => handleZoomChange(true)}
                   className="btn btn-sm btn-secondary"
-                  disabled={zoom >= 500}
+                  disabled={zoom >= 1000}
                 >
                   <Plus className="w-4 h-4" />
                 </button>
@@ -2639,6 +2873,7 @@ export default function VideoComponent({ video }: { video: Content }) {
                   setHoveredSegmentId={setHoveredSegmentId}
                   removeSegment={removeSegment}
                   audioTrackNames={video.audioTrackNames}
+                  audioTrackTypes={video.audioTrackTypes}
                   onMutedAudioTracksChange={(id, mutedTracks) =>
                     updateSegment({
                       ...segments.find((s) => s.id === id)!,
@@ -2653,6 +2888,16 @@ export default function VideoComponent({ video }: { video: Content }) {
                   }
                 />
               ))}
+              {clipOutputMode === 'combined' && segments.length > 0 && (
+                <div className="flex items-center justify-center pb-1">
+                  <span
+                    className="text-sm font-medium text-gray-300 opacity-50 tabular-nums"
+                    title="Total length of all segments"
+                  >
+                    {formatTime(totalSegmentsDuration)}
+                  </span>
+                </div>
+              )}
             </div>
             <div className="flex items-center justify-between my-3 mr-3">
               <label className="flex items-center cursor-pointer">
@@ -2697,7 +2942,7 @@ export default function VideoComponent({ video }: { video: Content }) {
                 variant="primary"
                 size="sm"
                 className="w-full h-10 py-0 hover:text-accent"
-                onClick={clearAllSegments}
+                onClick={handleClearSegments}
                 disabled={segments.length === 0}
               >
                 <Trash2 className="w-4 h-4" />

@@ -1,13 +1,10 @@
 using Serilog;
-using System.Linq;
 using System.Reflection;
 using System.Diagnostics;
-using System.Globalization;
 using Segra.Backend.Recorder;
 using Segra.Backend.Core.Models;
 using Segra.Backend.Windows.Storage;
 using System.Runtime.InteropServices;
-using System.Text.RegularExpressions;
 
 namespace Segra.Backend.App
 {
@@ -29,7 +26,6 @@ namespace Segra.Backend.App
                 LogGameDetection();
                 LogAccountAndMisc();
                 LogClipExport();
-                LogRecentErrors();
 
                 Log.Information("============ END DIAGNOSTIC SNAPSHOT ============");
             }
@@ -71,6 +67,31 @@ namespace Segra.Backend.App
         {
             Log.Information("--- System hardware ---");
 
+#if !WINDOWS
+            // Linux: read CPU/memory from procfs; GPU vendor from the detection helper.
+            try
+            {
+                if (File.Exists("/proc/cpuinfo"))
+                {
+                    var model = File.ReadLines("/proc/cpuinfo")
+                        .FirstOrDefault(l => l.StartsWith("model name"));
+                    if (model != null)
+                        Log.Information($"CPU: {model.Split(':', 2).Last().Trim()} ({Environment.ProcessorCount} logical)");
+                }
+                if (File.Exists("/proc/meminfo"))
+                {
+                    var memTotal = File.ReadLines("/proc/meminfo").FirstOrDefault(l => l.StartsWith("MemTotal"));
+                    if (memTotal != null && long.TryParse(new string(memTotal.Where(char.IsDigit).ToArray()), out long kb))
+                        Log.Information($"Total physical memory: {kb / 1024.0 / 1024.0:F2} GB");
+                }
+                Log.Information($"GPU vendor: {Shared.GeneralUtils.DetectGpuVendor()}");
+            }
+            catch (Exception ex)
+            {
+                Log.Information($"System hardware: error reading ({ex.Message})");
+            }
+            return;
+#else
             try
             {
                 using var cpuSearcher = new System.Management.ManagementObjectSearcher(
@@ -134,12 +155,32 @@ namespace Segra.Backend.App
             {
                 Log.Information($"GPU adapters: error reading ({ex.Message})");
             }
+#endif
         }
 
         private static void LogDrives()
         {
             Log.Information("--- Drives ---");
 
+#if !WINDOWS
+            // Linux: enumerate mounted drives via the cross-platform DriveInfo API.
+            try
+            {
+                var drives = DriveInfo.GetDrives().Where(d => d.IsReady).ToList();
+                Log.Information($"Drives ({drives.Count}):");
+                foreach (var d in drives)
+                {
+                    double totalGb = d.TotalSize / 1024.0 / 1024.0 / 1024.0;
+                    double freeGb = d.AvailableFreeSpace / 1024.0 / 1024.0 / 1024.0;
+                    Log.Information($"  - {d.Name} ({d.DriveType}, {d.DriveFormat}) total={totalGb:F2} GB, free={freeGb:F2} GB");
+                }
+            }
+            catch (Exception ex)
+            {
+                Log.Information($"Drives: error reading ({ex.Message})");
+            }
+            return;
+#else
             // Physical disks via MSFT_PhysicalDisk (accurate media/bus type, uint64 size)
             try
             {
@@ -229,6 +270,7 @@ namespace Segra.Backend.App
             {
                 Log.Information($"Logical drives: error reading ({ex.Message})");
             }
+#endif
         }
 
         private static string MediaTypeName(ushort code) => code switch
@@ -264,82 +306,6 @@ namespace Segra.Backend.App
             19 => "SCM",
             _ => $"Unknown({code})"
         };
-
-        private static readonly Regex LogHeaderRegex = new(
-            @"^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d{3} [+-]\d{2}:\d{2}) \[(\w{3})\] ",
-            RegexOptions.Compiled);
-
-        private static void LogRecentErrors()
-        {
-            const int maxEntries = 50;
-            var cutoff = DateTimeOffset.Now.AddHours(-24);
-            Log.Information($"--- Recent errors (last 24h, max {maxEntries}) ---");
-
-            try
-            {
-                string logPath = Path.Combine(
-                    Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-                    "Segra", "logs.log");
-
-                if (!File.Exists(logPath))
-                {
-                    Log.Information("Log file not found");
-                    return;
-                }
-
-                var entries = new List<List<string>>();
-                List<string>? currentEntry = null;
-
-                using var fs = new FileStream(logPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
-                using var reader = new StreamReader(fs);
-                string? line;
-                while ((line = reader.ReadLine()) != null)
-                {
-                    var match = LogHeaderRegex.Match(line);
-                    if (match.Success)
-                    {
-                        currentEntry = null;
-                        if (match.Groups[2].Value != "ERR") continue;
-                        if (!DateTimeOffset.TryParseExact(
-                                match.Groups[1].Value,
-                                "yyyy-MM-dd HH:mm:ss.fff zzz",
-                                CultureInfo.InvariantCulture,
-                                DateTimeStyles.None,
-                                out var ts))
-                        {
-                            continue;
-                        }
-                        if (ts < cutoff) continue;
-
-                        currentEntry = new List<string> { line };
-                        entries.Add(currentEntry);
-                    }
-                    else if (currentEntry != null)
-                    {
-                        // Continuation (exception stack trace)
-                        currentEntry.Add(line);
-                    }
-                }
-
-                int total = entries.Count;
-                var recent = total > maxEntries
-                    ? entries.GetRange(total - maxEntries, maxEntries)
-                    : entries;
-
-                Log.Information($"Found {total} error entr{(total == 1 ? "y" : "ies")} in last 24h, showing last {recent.Count}");
-                foreach (var entry in recent)
-                {
-                    foreach (var l in entry)
-                    {
-                        Log.Information($"  {l}");
-                    }
-                }
-            }
-            catch (Exception ex)
-            {
-                Log.Information($"Recent errors: error reading log ({ex.Message})");
-            }
-        }
 
         private static string DriveTypeName(uint code) => code switch
         {
@@ -385,7 +351,9 @@ namespace Segra.Backend.App
             Log.Information($"Replay buffer: duration={s.ReplayBufferDuration}s, maxSize={s.ReplayBufferMaxSize}MB");
             Log.Information($"Display capture method: {s.DisplayCaptureMethod}");
             Log.Information($"GPU vendor: {AppState.Instance.GpuVendor}");
+#if WINDOWS
             Log.Information($"NVENC capabilities: {NvencCapsService.GetCapsSummaryOrNull() ?? "<none>"}");
+#endif
             Log.Information($"Available codecs ({AppState.Instance.Codecs.Count}):");
             foreach (var codec in AppState.Instance.Codecs)
             {
@@ -487,6 +455,7 @@ namespace Segra.Backend.App
             Log.Information($"Auto generate highlights: {s.AutoGenerateHighlights}");
             Log.Information($"Run on startup: {s.RunOnStartup}");
             Log.Information($"Receive beta updates: {s.ReceiveBetaUpdates}");
+            Log.Information($"Confirm before deleting: {s.ConfirmBeforeDeleting}");
             Log.Information($"Remove original after compression: {s.RemoveOriginalAfterCompression}");
             Log.Information($"Discard sessions without bookmarks: {s.DiscardSessionsWithoutBookmarks}");
         }
