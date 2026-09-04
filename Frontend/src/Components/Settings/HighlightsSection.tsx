@@ -56,6 +56,7 @@ export default function HighlightsSection({ settings, updateSettings }: Highligh
             </span>
           </label>
         </div>
+<<<<<<< HEAD
         <div className="flex items-center">
           <label className="flex items-center gap-2">
             <input
@@ -125,6 +126,43 @@ export default function HighlightsSection({ settings, updateSettings }: Highligh
               </div>
             </div>
 
+=======
+
+        <div className="pt-3 border-t border-custom">
+          <div className="grid grid-cols-2 gap-4">
+            <div className="form-control w-full">
+              <label
+                htmlFor="highlightPaddingBefore"
+                className="label text-base-content px-0 !block mb-1"
+              >
+                <span className="label-text">Before Highlight</span>
+              </label>
+              <div className="join w-full">
+                <input
+                  id="highlightPaddingBefore"
+                  type="number"
+                  name="highlightPaddingBefore"
+                  value={localPaddingBefore}
+                  onChange={(e) => setLocalPaddingBefore(e.target.value)}
+                  onBlur={() =>
+                    commitPadding(
+                      localPaddingBefore,
+                      setLocalPaddingBefore,
+                      'highlightPaddingBefore',
+                    )
+                  }
+                  min={1}
+                  max={60}
+                  step={0.5}
+                  className="input input-bordered bg-base-200 join-item flex-1 w-full outline-none focus:border-base-400"
+                />
+                <span className="join-item flex items-center px-3 bg-base-200 border border-base-400 text-sm opacity-70">
+                  seconds
+                </span>
+              </div>
+            </div>
+
+>>>>>>> upstream/main
             <div className="form-control w-full">
               <label
                 htmlFor="highlightPaddingAfter"

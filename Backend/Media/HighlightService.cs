@@ -28,7 +28,11 @@ namespace Segra.Backend.Media
         /// Creates a highlight video from all highlight-worthy bookmarks (Kill, Goal, etc.).
         /// Uses stream copy for fast extraction without re-encoding.
         /// </summary>
+<<<<<<< HEAD
         public static async Task<HighlightCreationResult> CreateHighlightFromBookmarks(string contentId, Action<int, string>? progressCallback = null)
+=======
+        public static async Task CreateHighlightFromBookmarks(string contentId, Action<int, string>? progressCallback = null)
+>>>>>>> upstream/main
         {
             try
             {
@@ -38,7 +42,11 @@ namespace Segra.Backend.Media
                 if (content == null)
                 {
                     Log.Warning($"No content found matching id: {contentId}");
+<<<<<<< HEAD
                     return HighlightCreationResult.NoSourceContent;
+=======
+                    return;
+>>>>>>> upstream/main
                 }
 
                 List<Bookmark> highlightBookmarks = content.Bookmarks
@@ -111,6 +119,7 @@ namespace Segra.Backend.Media
                 progressCallback?.Invoke(92, "Creating metadata...");
 
                 // Create metadata, thumbnail, and waveform.
+<<<<<<< HEAD
                 // When enabled, highlights explicitly map all streams and preserve the source's audio tracks.
                 string? highlightId = await ContentService.CreateMetadataFile(
                     outputFilePath,
@@ -122,6 +131,10 @@ namespace Segra.Backend.Media
                     audioTrackNames: audioTrackNames,
                     audioTrackTypes: keepSeparateAudioTracks ? content.AudioTrackTypes : null,
                     gameExePath: content.GameExePath);
+=======
+                // Highlights use stream-copy extract+concat, so they preserve the source's audio tracks.
+                string? highlightId = await ContentService.CreateMetadataFile(outputFilePath, Content.ContentType.Highlight, content.Game!, null, content.Title, igdbId: content.IgdbId, audioTrackNames: content.AudioTrackNames, audioTrackTypes: content.AudioTrackTypes, gameExePath: content.GameExePath);
+>>>>>>> upstream/main
 
                 progressCallback?.Invoke(95, "Creating thumbnail...");
                 await ContentService.CreateThumbnail(outputFilePath, Content.ContentType.Highlight, highlightId);
@@ -242,6 +255,7 @@ namespace Segra.Backend.Media
                         "-y",
                         "-ss", segment.StartTime.ToString(CultureInfo.InvariantCulture),
                         "-t", segmentDuration.ToString(CultureInfo.InvariantCulture),
+<<<<<<< HEAD
                         "-i", inputFilePath
                     };
 
@@ -259,6 +273,10 @@ namespace Segra.Backend.Media
 
                     arguments.AddRange(new[]
                     {
+=======
+                        "-i", inputFilePath,
+                        "-map", "0",
+>>>>>>> upstream/main
                         "-c", "copy",
                         "-avoid_negative_ts", "make_zero",
                         tempFile
@@ -303,6 +321,7 @@ namespace Segra.Backend.Media
                     "-y",
                     "-f", "concat",
                     "-safe", "0",
+<<<<<<< HEAD
                     "-i", concatFilePath
                 };
 
@@ -335,6 +354,11 @@ namespace Segra.Backend.Media
 
                 concatArguments.AddRange(new[]
                 {
+=======
+                    "-i", concatFilePath,
+                    "-map", "0",
+                    "-c", "copy",
+>>>>>>> upstream/main
                     "-movflags", "+faststart",
                     outputFilePath
                 });

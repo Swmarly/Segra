@@ -92,14 +92,20 @@
     <Compile Remove="Backend\Windows\Display\DisplayService.cs" />
     <Compile Remove="Backend\Windows\Display\HdrDetectionService.cs" />
     <Compile Remove="Backend\Windows\Display\WindowUtils.cs" />
+<<<<<<< HEAD
     <Compile Remove="Backend\Windows\GameMode\GameModeService.cs" />
+=======
+>>>>>>> upstream/main
     <Compile Remove="Backend\Windows\Power\PowerModeMonitor.cs" />
     <Compile Remove="Backend\Windows\WebView2\WebView2RuntimeService.cs" />
     <Compile Remove="Backend\App\NotifyIconService.cs" />
     <Compile Remove="Backend\Recorder\OBSWindow.cs" />
     <Compile Remove="Backend\Recorder\NvencCapsService.cs" />
     <Compile Remove="Backend\Games\OcrIntegration.cs" />
+<<<<<<< HEAD
     <Compile Remove="Backend\Games\ApexLegends\ApexLegendsIntegration.cs" />
+=======
+>>>>>>> upstream/main
     <Compile Remove="Backend\Games\GrandTheftAuto\GtaIntegration.cs" />
     <Compile Remove="Backend\Games\RocketLeague\RocketLeagueIntegration.cs" />
     <Compile Remove="Backend\Platform\Windows\**\*.cs" />
@@ -128,10 +134,13 @@
     <Content Include="icon.ico">
       <CopyToOutputDirectory>Always</CopyToOutputDirectory>
     </Content>
+<<<<<<< HEAD
     <Content Include="Obs\OBS 32.1.2.zip" Condition="'$(TargetFramework)' == 'net10.0-windows10.0.19041.0'">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
     </Content>
+=======
+>>>>>>> upstream/main
     <!-- Linux uses the PNG for the Photino window icon (icon.ico is Windows-only). -->
     <Content Include="icon.png">
       <CopyToOutputDirectory>Always</CopyToOutputDirectory>

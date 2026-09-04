@@ -531,6 +531,7 @@ namespace Segra.Backend.Recorder
                     "OBS Studio not found"
                 );
 #endif
+<<<<<<< HEAD
                 AppState.Instance.HasLoadedObs = true;
                 return;
             }
@@ -547,10 +548,13 @@ namespace Segra.Backend.Recorder
                     "error",
                     "Missing Visual C++ runtime"
                 );
+=======
+>>>>>>> upstream/main
                 AppState.Instance.HasLoadedObs = true;
                 return;
             }
 
+#if WINDOWS
             // Probe NVENC capabilities in the background (cached in AppData until the GPU,
             // driver or OBS bundle changes) so encoder setup can disable unsupported features
             // like b-frames. The test exe ships with the OBS bundle, so this must run after
@@ -569,6 +573,7 @@ namespace Segra.Backend.Recorder
 
             try
             {
+<<<<<<< HEAD
                 Task completedTask = await Task.WhenAny(initializeTask, timeoutTask);
                 if (completedTask != initializeTask)
                 {
@@ -582,6 +587,53 @@ namespace Segra.Backend.Recorder
                     AppState.Instance.HasLoadedObs = true;
                     return;
                 }
+=======
+                // Initialize OBS using ObsKit.NET fluent API
+#if WINDOWS
+                string baseDir = AppContext.BaseDirectory;
+                string obsModulePath = Path.Combine(baseDir, "obs-plugins", "64bit");
+                string obsModuleDataPath = Path.Combine(baseDir, "data", "obs-plugins", "%module%");
+                string obsDataPath = Path.Combine(baseDir, "data", "libobs");
+                Log.Information($"OBS runtime paths: data='{obsDataPath}', modules='{obsModulePath}'");
+#else
+                // The launcher/re-exec resolves the OBS runtime and passes paths via env vars.
+                string obsModulePath = Environment.GetEnvironmentVariable("SEGRA_OBS_MODULE_PATH") ?? "./obs-plugins/";
+                string obsModuleDataPath = Environment.GetEnvironmentVariable("SEGRA_OBS_MODULE_DATA_PATH") ?? "./data/obs-plugins/%module%/";
+                string obsDataPath = Environment.GetEnvironmentVariable("SEGRA_OBS_DATA_PATH") ?? "./data/libobs/";
+                Log.Information($"Linux OBS runtime: data='{obsDataPath}', modules='{obsModulePath}'");
+#endif
+                _obsContext = Obs.Initialize(config =>
+                {
+                    config
+                        .WithLocale("en-US")
+                        .WithDataPath(obsDataPath)
+                        .WithModulePath(obsModulePath, obsModuleDataPath)
+#if !WINDOWS
+                        .ForHeadlessOperation()
+#endif
+                        .WithVideo(v => v
+                            .Resolution(1920, 1080)
+                            .Fps(60))
+                        .WithAudio(a => a
+                            .WithSampleRate(44100)
+                            .WithSpeakers(SpeakerLayout.Stereo))
+                        .WithLogging((level, message) =>
+                        {
+                            try
+                            {
+                                // Queue the message for async processing - this is non-blocking
+                                _logChannel.Writer.TryWrite(((int)level, message));
+                            }
+                            catch
+                            {
+                                // Silently ignore marshaling errors to never block OBS
+                            }
+                        });
+                });
+
+                // Disable auto-dispose for manual resource management
+                Obs.AutoDispose = false;
+>>>>>>> upstream/main
 
                 _obsContext = await initializeTask;
                 InstalledOBSVersion = Obs.Version;
@@ -1176,6 +1228,7 @@ namespace Segra.Backend.Recorder
                         _desktopSources.Add(desktopSource);
 
                         Log.Information($"Added output device: {deviceSetting.Name} ({deviceSetting.Id}) as {sourceName} with volume {desktopSource.Volume}");
+<<<<<<< HEAD
                     }
                 }
             }
@@ -1188,13 +1241,15 @@ namespace Segra.Backend.Recorder
                     if (processSource != null)
                     {
                         processSource.Volume = processSetting.Volume;
+=======
+>>>>>>> upstream/main
                     }
                 }
             }
 
-            // In GameAndDiscord mode, capture audio from running voice chat apps. Sources start muted
-            // (desktop audio covers voice chat until the game hooks); apps launched mid-recording are
-            // added via OnVoiceChatAppStarted.
+            // In GameAndDiscord mode, capture audio from running voice chat apps. Sources are muted
+            // while the game is not hooked (desktop audio covers voice chat); apps launched
+            // mid-recording are added via OnVoiceChatAppStarted.
             if (audioOutputMode == AudioOutputMode.GameAndDiscord && GameCaptureSource != null)
             {
                 foreach (var app in VoiceChatApps)
@@ -1222,11 +1277,14 @@ namespace Segra.Backend.Recorder
                 trackGroups.Add([desktopSource]);
                 trackGroupTypes.Add("output");
             }
+<<<<<<< HEAD
             foreach (var (_, processSource) in _processAudioSources)
             {
                 trackGroups.Add([processSource]);
                 trackGroupTypes.Add("output");
             }
+=======
+>>>>>>> upstream/main
 
             int voiceChatGroupIndex = -1;
             if (audioOutputMode != AudioOutputMode.All && GameCaptureSource != null)
@@ -1254,11 +1312,14 @@ namespace Segra.Backend.Recorder
                     trackGroups.Add([micSource]);
                     trackGroupTypes.Add("input");
                 }
+<<<<<<< HEAD
                 foreach (var (_, processSource) in _processAudioSources)
                 {
                     trackGroups.Add([processSource]);
                     trackGroupTypes.Add("output");
                 }
+=======
+>>>>>>> upstream/main
                 trackGroups.Add([GameCaptureSource]);
                 trackGroupTypes.Add("output");
 
@@ -1772,7 +1833,10 @@ namespace Segra.Backend.Recorder
                 bool isReplayBufferMode = effectiveMode == RecordingMode.Buffer;
                 bool isHybridMode = effectiveMode == RecordingMode.Hybrid;
                 string? sessionContentId = null;
+<<<<<<< HEAD
                 string? sessionFilePath = AppState.Instance.Recording?.FilePath;
+=======
+>>>>>>> upstream/main
 
                 if (isReplayBufferMode && _bufferOutput != null)
                 {
@@ -2022,9 +2086,15 @@ namespace Segra.Backend.Recorder
                 AppState.Instance.PreRecording = null;
 
                 // If the recording is not a replay buffer recording, AI is enabled and auto generate highlights is enabled -> analyze the video!
+<<<<<<< HEAD
                 if (Settings.Instance.EnableAi && Settings.Instance.AutoGenerateHighlights && !isReplayBufferMode && sessionContentId != null && sessionFilePath != null && bookmarks.Any(b => b.Type.IncludeInHighlight()))
                 {
                     _ = CreateHighlightAndMaybeDiscardSession(sessionContentId, sessionFilePath, discardSessionAfterHighlights);
+=======
+                if (Settings.Instance.EnableAi && Settings.Instance.AutoGenerateHighlights && !isReplayBufferMode && sessionContentId != null && bookmarks.Any(b => b.Type.IncludeInHighlight()))
+                {
+                    _ = AiService.CreateHighlight(sessionContentId);
+>>>>>>> upstream/main
                 }
             }
             finally
@@ -2323,6 +2393,7 @@ namespace Segra.Backend.Recorder
             }
         }
 
+<<<<<<< HEAD
         private static Source? TryAddProcessAudioSource(DeviceSetting processSetting, bool muted)
         {
             try
@@ -2382,6 +2453,12 @@ namespace Segra.Backend.Recorder
         {
             try
             {
+=======
+        private static Source? TryAddVoiceChatSource((string Name, string Window) app)
+        {
+            try
+            {
+>>>>>>> upstream/main
                 var voiceSource = new ApplicationAudioCapture($"{app.Name} Audio")
                     .SetWindow(app.Window, ApplicationAudioCapture.WindowPriority.Executable);
                 voiceSource.IsMuted = true;
@@ -3139,6 +3216,7 @@ namespace Segra.Backend.Recorder
                     Log.Information($"Using OBS version: {versionToDownload.Version}");
                     string metadataUrl = versionToDownload.Url; // This is the GitHub metadata URL
 
+<<<<<<< HEAD
                     using (var httpClient = new HttpClient())
                     {
                         httpClient.Timeout = Timeout.InfiniteTimeSpan;
@@ -3150,6 +3228,18 @@ namespace Segra.Backend.Recorder
 
                         // Check if we already have the file with the correct hash
                         if (!isUpdate && File.Exists(zipPath) && File.Exists(localHashPath))
+=======
+                    // Fetch the metadata from GitHub to resolve the real download URL + hash.
+                    var metadata = await FetchGitHubFileMetadataAsync(httpClient, metadataUrl, versionToDownload.Version);
+                    string remoteHash = metadata.Sha;
+                    string actualDownloadUrl = metadata.DownloadUrl;
+
+                    // Check if we already have the file with the correct hash
+                    if (!isUpdate && File.Exists(zipPath) && File.Exists(localHashPath))
+                    {
+                        string localHash = await File.ReadAllTextAsync(localHashPath);
+                        if (localHash == remoteHash)
+>>>>>>> upstream/main
                         {
                             string localHash = await File.ReadAllTextAsync(localHashPath);
                             if (localHash == remoteHash)
@@ -3294,6 +3384,7 @@ namespace Segra.Backend.Recorder
                 throw new Exception("Invalid API response: Missing download URL.");
             }
             return metadata;
+<<<<<<< HEAD
         }
 
         private static async Task<bool> TryInstallBundledOBSAsync(string currentDirectory)
@@ -3327,6 +3418,8 @@ namespace Segra.Backend.Recorder
                 Log.Error(ex, $"Failed to install bundled OBS from {bundledZipPath}");
                 return false;
             }
+=======
+>>>>>>> upstream/main
         }
 
         private class GitHubFileMetadata

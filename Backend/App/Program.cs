@@ -16,7 +16,10 @@ using Segra.Backend.Windows.Storage;
 using System.Reflection;
 using System.Runtime.InteropServices;
 #if WINDOWS
+<<<<<<< HEAD
 using Segra.Backend.Windows.GameMode;
+=======
+>>>>>>> upstream/main
 using Segra.Backend.Windows.Power;
 using Segra.Backend.Windows.WebView2;
 #endif
@@ -38,6 +41,7 @@ namespace Segra.Backend.App
         [DllImport("user32.dll")]
         static extern int GetSystemMetrics(int nIndex);
 
+<<<<<<< HEAD
         [DllImport("user32.dll", SetLastError = true)]
         static extern int GetWindowLong(IntPtr hWnd, int nIndex);
 
@@ -56,6 +60,8 @@ namespace Segra.Backend.App
         [DllImport("user32.dll", SetLastError = true)]
         static extern bool GetMonitorInfo(IntPtr hMonitor, ref MONITORINFO lpmi);
 
+=======
+>>>>>>> upstream/main
         [DllImport("user32.dll")]
         static extern bool SetForegroundWindow(IntPtr hWnd);
 
@@ -75,6 +81,7 @@ namespace Segra.Backend.App
         const int SW_RESTORE = 9;
         const int SM_CXFULLSCREEN = 16;
         const int SM_CYFULLSCREEN = 17;
+<<<<<<< HEAD
         const int GWL_STYLE = -16;
         const int GWL_EXSTYLE = -20;
         const int WS_OVERLAPPEDWINDOW = 0x00CF0000;
@@ -91,6 +98,8 @@ namespace Segra.Backend.App
         const uint SWP_SHOWWINDOW = 0x0040;
         static readonly IntPtr HWND_TOPMOST = new(-1);
         static readonly IntPtr HWND_NOTOPMOST = new(-2);
+=======
+>>>>>>> upstream/main
 #endif
         public static bool IsFirstRun { get; private set; } = false;
         private static readonly AutoResetEvent ShowWindowEvent = new(false);
@@ -242,14 +251,21 @@ namespace Segra.Backend.App
                         .RunAsync();
                 }
 
+<<<<<<< HEAD
                 string appBuildStamp = File.GetLastWriteTimeUtc(typeof(Program).Assembly.Location).Ticks.ToString();
+=======
+>>>>>>> upstream/main
                 // Version-stamped URL: WebKitGTK's disk cache persists across app updates and the
                 // static server sends no cache headers, so a bare /index.html can keep rendering
                 // the previous build's frontend until a manual refresh.
                 string? appVersion = Assembly.GetExecutingAssembly()
                     .GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion;
+<<<<<<< HEAD
                 string frontendCacheKey = $"{appVersion ?? "0"}-{appBuildStamp}";
                 appUrl = IsDebugMode ? "http://localhost:2882" : $"{baseUrl}/index.html?v={Uri.EscapeDataString(frontendCacheKey)}";
+=======
+                appUrl = IsDebugMode ? "http://localhost:2882" : $"{baseUrl}/index.html?v={Uri.EscapeDataString(appVersion ?? "0")}";
+>>>>>>> upstream/main
 
                 if (IsDebugMode)
                 {
@@ -299,9 +315,12 @@ namespace Segra.Backend.App
                 {
                     _ = SettingsService.LoadContentFromFolderIntoState(true);
                     PlatformServices.Startup.SetStartupStatus(true);
+<<<<<<< HEAD
 #if WINDOWS
                     Settings.Instance.DisableWindowsGameMode = true;
 #endif
+=======
+>>>>>>> upstream/main
                     AppState.Instance.GpuVendor = GeneralUtils.DetectGpuVendor();
                     SettingsService.SelectDefaultDevices();
                     _ = PresetsService.ApplyVideoPreset("high");
@@ -378,9 +397,12 @@ namespace Segra.Backend.App
                 // Start monitoring system power state changes (sleep/wake)
                 Task.Run(PowerModeMonitor.StartMonitoring);
 
+<<<<<<< HEAD
                 // Ensure Windows Game Mode is off when the user has opted in (no-op otherwise).
                 Task.Run(GameModeService.EnforceDisabledIfEnabled);
 
+=======
+>>>>>>> upstream/main
                 // Run the OBS Initializer in a separate thread and application to make sure someting on the main thread doesn't block
                 // (KeybindCaptureService.Start() is called from OBSService.InitializeAsync once OBS is
                 // ready, since hotkeys register through OBS's own hotkey system.)
@@ -434,6 +456,7 @@ namespace Segra.Backend.App
         private static Size? _windowSizeBeforeFullscreen;
         private static Point? _windowLocationBeforeFullscreen;
         private static bool _wasMaximizedBeforeFullscreen;
+<<<<<<< HEAD
 #if WINDOWS
         private static bool _wasTopMostBeforeFullscreen;
         private static int? _windowStyleBeforeFullscreen;
@@ -461,6 +484,8 @@ namespace Segra.Backend.App
             public uint dwFlags;
         }
 #endif
+=======
+>>>>>>> upstream/main
         private static Point? _lastNormalLocation;
         private static Size? _lastNormalSize;
 
@@ -592,6 +617,8 @@ namespace Segra.Backend.App
         {
             Log.Information("Application shutting down.");
             NativePlaybackAudioService.Stop();
+
+            SaveWindowState();
 
             SaveWindowState();
 
@@ -787,7 +814,11 @@ namespace Segra.Backend.App
 #if WINDOWS
             // Chromium/WebView2-only flags; WebKitGTK on Linux parses these natively and crashes on the
             // leading "--", so they must only be set on Windows.
+<<<<<<< HEAD
             string browserArgs = "--enable-blink-features=AudioVideoTracks --disable-http-cache";
+=======
+            string browserArgs = "--enable-blink-features=AudioVideoTracks";
+>>>>>>> upstream/main
 
             // Without this, Chromium runs system proxy auto-detection (WPAD) on launch and the
             // webview's first request to the local server stalls ~1s waiting for it. Only skip

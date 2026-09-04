@@ -1,6 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
+<<<<<<< HEAD
 import { Download, FileText, Plane, BookOpen } from 'lucide-react';
+=======
+import { FileText, RefreshCw, Plane, BookOpen } from 'lucide-react';
+>>>>>>> upstream/main
 import { GithubIcon, DiscordIcon } from '../icons/BrandIcons';
 import DropdownSelect from '../DropdownSelect';
 import { Settings as SettingsType } from '../../Models/types';
@@ -71,6 +75,19 @@ export default function AdvancedSection({
                       onChange={(val) => updateSettings({ receiveBetaUpdates: val === 'beta' })}
                     />
                   </div>
+<<<<<<< HEAD
+=======
+                  <Button
+                    variant="primary"
+                    size="sm"
+                    className="gap-2 bg-base-200 hover:bg-base-300"
+                    onClick={() => checkForUpdates()}
+                    loading={appState.isCheckingForUpdates}
+                  >
+                    {!appState.isCheckingForUpdates && <RefreshCw size={16} className="shrink-0" />}
+                    <span className="inline-block">Check for Updates</span>
+                  </Button>
+>>>>>>> upstream/main
                 </div>
               </div>
             </div>
@@ -88,7 +105,11 @@ export default function AdvancedSection({
               </p>
             </div>
           )}
+<<<<<<< HEAD
           <div className="flex flex-wrap items-center gap-2">
+=======
+          <div className="flex items-center">
+>>>>>>> upstream/main
             <Button
               variant="primary"
               size="sm"

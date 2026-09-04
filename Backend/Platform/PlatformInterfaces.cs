@@ -23,7 +23,10 @@ namespace Segra.Backend.Platform
     {
         List<AudioDevice> GetInputDevices();
         List<AudioDevice> GetOutputDevices();
+<<<<<<< HEAD
         List<AudioDevice> GetProcessAudioSources();
+=======
+>>>>>>> upstream/main
         IPlatformWatcher CreateWatcher();
     }
 

@@ -69,7 +69,10 @@ namespace Segra.Backend.Platform.Windows
     {
         public List<AudioDevice> GetInputDevices() => AudioDeviceService.GetInputDevices();
         public List<AudioDevice> GetOutputDevices() => AudioDeviceService.GetOutputDevices();
+<<<<<<< HEAD
         public List<AudioDevice> GetProcessAudioSources() => AudioDeviceService.GetProcessAudioSources();
+=======
+>>>>>>> upstream/main
         public IPlatformWatcher CreateWatcher() => new WindowsAudioWatcher();
     }
 

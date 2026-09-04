@@ -581,6 +581,13 @@ export default function VideoComponent({ video }: { video: Content }) {
     () => segments.reduce((sum, s) => sum + Math.max(0, s.endTime - s.startTime), 0),
     [segments],
   );
+<<<<<<< HEAD
+=======
+  const segmentsRef = useRef(segments);
+  useEffect(() => {
+    segmentsRef.current = segments;
+  }, [segments]);
+>>>>>>> upstream/main
 
   // Track in-flight thumbnail requests to avoid stale overwrites
   const thumbnailReqTokenRef = useRef<Map<number, number>>(new Map());
@@ -810,6 +817,7 @@ export default function VideoComponent({ video }: { video: Content }) {
     let lastUiUpdate = 0;
     let lastSegmentCheck = -1;
     const tick = () => {
+<<<<<<< HEAD
       const now = performance.now();
       const t = vid.currentTime;
 
@@ -821,6 +829,12 @@ export default function VideoComponent({ video }: { video: Content }) {
       ) {
         setCurrentTime(t);
         lastUiUpdate = now;
+=======
+      // While resizing a segment the video previews the dragged edge; the
+      // playhead must not follow it.
+      if (resizeDirectionRef.current == null) {
+        setCurrentTime(vid.currentTime);
+>>>>>>> upstream/main
       }
 
       // Per-segment audio mute/volume override

@@ -165,6 +165,7 @@ export default function PreferencesSection({ settings, updateSettings }: Prefere
           <label className="flex items-center gap-2">
             <input
               type="checkbox"
+<<<<<<< HEAD
               name="discardSessionAfterHighlights"
               checked={settings.discardSessionAfterHighlights}
               onChange={(e) => updateSettings({ discardSessionAfterHighlights: e.target.checked })}
@@ -194,6 +195,8 @@ export default function PreferencesSection({ settings, updateSettings }: Prefere
           <label className="flex items-center gap-2">
             <input
               type="checkbox"
+=======
+>>>>>>> upstream/main
               name="showNewBadgeOnVideos"
               checked={settings.showNewBadgeOnVideos}
               onChange={(e) => updateSettings({ showNewBadgeOnVideos: e.target.checked })}

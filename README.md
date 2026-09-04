@@ -18,7 +18,11 @@
 
 ---
 
+<<<<<<< HEAD
 ## Features
+=======
+## Features  
+>>>>>>> upstream/main
 - Auto-starts recording when a game launches
 - Replay buffer, save the last moments with a hotkey
 - Up to 4K 144 FPS, HDR on Windows
@@ -33,20 +37,29 @@
 ---
 
 ## Why "Segra"?  
+<<<<<<< HEAD
 **Segra** (pronounced *"say-grah"*) means **"to win"** in Swedish. We built Segra to help you preserve those moments: the chaotic fun with friends, the clutch plays, and the wins (*segra!*) that deserve their own highlight reel.
+=======
+**Segra** (pronounced *"say-grah"*) means **"to win"** in Swedish. We built Segra to help you preserve those moments: the chaotic fun with friends, the clutch plays, and the wins (*segra!*) that deserve their own highlight reel.  
+>>>>>>> upstream/main
 
 ---
 
 ## Installation
 
 ### Windows
+<<<<<<< HEAD
 1. **Download**: Get `Segra-win-Setup.exe` from the [latest release](https://github.com/Swmarly/Segra/releases/latest).
+=======
+1. **Download**: Get `Segra-win-Setup.exe` from the [latest release](https://github.com/Segergren/Segra/releases/latest).  
+>>>>>>> upstream/main
 2. **Install**: Run the setup.  
 3. **Configure**:  
    - Set recording directory and video quality.  
    - Assign hotkeys for clipping/uploading.  
    - Connect your Segra.tv account.  
 
+<<<<<<< HEAD
 ## Friend Releases
 
 This repository includes a GitHub Actions workflow named **Friend Release**.
@@ -70,6 +83,12 @@ Developers can place the verified bundle at the path expected by the build by ru
 Linux support is in early alpha. It might not start at all, and features that work on Windows can be missing or broken. Please do not open GitHub issues for Linux problems yet.
 
 1. Download `Segra.flatpak` from the [official upstream release](https://github.com/Segergren/Segra/releases/latest).
+=======
+### Linux (Alpha)
+Linux support is in early alpha. It might not start at all, and features that work on Windows can be missing or broken. Please do not open GitHub issues for Linux problems yet.
+
+1. Download `Segra.flatpak` from the [latest release](https://github.com/Segergren/Segra/releases/latest).
+>>>>>>> upstream/main
 2. Install it with `flatpak install Segra.flatpak`.
 
 ## Uninstallation
@@ -83,7 +102,11 @@ Linux support is in early alpha. It might not start at all, and features that wo
 ### Linux
 Run `flatpak uninstall tv.segra.Segra`.
 
+<<<<<<< HEAD
 ## Contributing
+=======
+## Contributing  
+>>>>>>> upstream/main
 See [CONTRIBUTING.md](CONTRIBUTING.md) for setup, dependencies, and dev workflow.
 Help improve Segra by:  
 - Report bugs or suggest features  
@@ -91,7 +114,11 @@ Help improve Segra by:
 
 ---
 
+<<<<<<< HEAD
 ## License
+=======
+## License  
+>>>>>>> upstream/main
 Segra is **GPLv2 licensed**.  
 
 ---
@@ -117,11 +144,19 @@ See our [Privacy Policy](https://segra.tv/privacy).
 
 ## Star History
 
+<<<<<<< HEAD
 <a href="https://www.star-history.com/#Swmarly/Segra&Date">
  <picture>
    <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=Swmarly/Segra&type=Date&theme=dark" />
    <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=Swmarly/Segra&type=Date" />
    <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=Swmarly/Segra&type=Date" />
+=======
+<a href="https://www.star-history.com/?type=date&repos=Segergren%2FSegra">
+ <picture>
+   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=Segergren/Segra&type=date&theme=dark&legend=top-left&sealed_token=JAaIsTwnipw7yKMwYTxXAZTVKOfmPUNhuDq2_b7iPCO4-K-c1tnLij-MXN0o8ZbyGH-ydukOtzcwUcsqXaiT89vKt6uwbFN8sKxKTRX9DGRLb1PPfRBgE7Wk8RrqLcQINaezbgie3IQEx-RMzNP98N3s2eQLQJgAXde2kUEHsgzPYk_DNdNIy58gfLsE" />
+   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=Segergren/Segra&type=date&legend=top-left&sealed_token=JAaIsTwnipw7yKMwYTxXAZTVKOfmPUNhuDq2_b7iPCO4-K-c1tnLij-MXN0o8ZbyGH-ydukOtzcwUcsqXaiT89vKt6uwbFN8sKxKTRX9DGRLb1PPfRBgE7Wk8RrqLcQINaezbgie3IQEx-RMzNP98N3s2eQLQJgAXde2kUEHsgzPYk_DNdNIy58gfLsE" />
+   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=Segergren/Segra&type=date&legend=top-left&sealed_token=JAaIsTwnipw7yKMwYTxXAZTVKOfmPUNhuDq2_b7iPCO4-K-c1tnLij-MXN0o8ZbyGH-ydukOtzcwUcsqXaiT89vKt6uwbFN8sKxKTRX9DGRLb1PPfRBgE7Wk8RrqLcQINaezbgie3IQEx-RMzNP98N3s2eQLQJgAXde2kUEHsgzPYk_DNdNIy58gfLsE" />
+>>>>>>> upstream/main
  </picture>
 </a>
 

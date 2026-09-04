@@ -612,6 +612,7 @@ namespace Segra.Backend.App
             Log.Information($"{message}");
             message.TryGetProperty("Id", out JsonElement idElement);
             await AiService.CreateHighlight(idElement.GetString()!);
+<<<<<<< HEAD
         }
 
         private static async Task HandleCreateAiClipsForSessions(JsonElement message)
@@ -678,6 +679,8 @@ namespace Segra.Backend.App
                 sessions.Count,
                 createdCount,
                 deletedCount);
+=======
+>>>>>>> upstream/main
         }
 
         private static async Task HandleCompressVideo(JsonElement message)

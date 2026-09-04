@@ -367,6 +367,7 @@ namespace Segra.Backend.Core
                 hasChanges = true;
             }
 
+<<<<<<< HEAD
             if (settings.DisableWindowsGameMode != updatedSettings.DisableWindowsGameMode)
             {
                 Log.Information($"DisableWindowsGameMode changed from '{settings.DisableWindowsGameMode}' to '{updatedSettings.DisableWindowsGameMode}'");
@@ -381,6 +382,8 @@ namespace Segra.Backend.Core
                 hasChanges = true;
             }
 
+=======
+>>>>>>> upstream/main
             if (updatedSettings.GameIntegrations != null)
             {
                 var current = settings.GameIntegrations;

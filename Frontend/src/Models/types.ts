@@ -336,7 +336,10 @@ export interface Settings {
   confirmBeforeDeleting: boolean;
   removeOriginalAfterCompression: boolean;
   discardSessionsWithoutBookmarks: boolean;
+<<<<<<< HEAD
   disableWindowsGameMode: boolean;
+=======
+>>>>>>> upstream/main
   menuItems: MenuItemPreference[];
   defaultMenuItem: MenuItemId;
 }
@@ -421,7 +424,6 @@ export const initialSettings: Settings = {
   confirmBeforeDeleting: false,
   removeOriginalAfterCompression: false,
   discardSessionsWithoutBookmarks: false,
-  disableWindowsGameMode: false,
   menuItems: DEFAULT_MENU_ITEMS,
   defaultMenuItem: 'Full Sessions',
   keybindings: [

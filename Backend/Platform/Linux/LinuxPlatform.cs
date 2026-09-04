@@ -22,7 +22,10 @@ namespace Segra.Backend.Platform.Linux
     {
         public List<AudioDevice> GetInputDevices() => Enumerate("sources");
         public List<AudioDevice> GetOutputDevices() => Enumerate("sinks");
+<<<<<<< HEAD
         public List<AudioDevice> GetProcessAudioSources() => [];
+=======
+>>>>>>> upstream/main
         public IPlatformWatcher CreateWatcher() => new NoopWatcher();
 
         // Enumerate PipeWire/PulseAudio endpoints via `pactl`. We deliberately do NOT prepend a
