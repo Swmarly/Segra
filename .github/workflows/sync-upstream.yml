@@ -9,7 +9,6 @@ on:
 permissions:
   contents: write
   pull-requests: write
-  issues: write
 
 jobs:
   sync:
@@ -150,58 +149,24 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
-      - name: Create or update conflict issue
+      - name: Report conflicts in workflow summary
         if: steps.apply.outputs.conflict == 'true'
-        uses: actions/github-script@v7
-        env:
-          REPORT_PATH: upstream-conflict-report.md
-          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-        with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          script: |
-            const fs = require('fs');
-            const report = fs.readFileSync(process.env.REPORT_PATH, 'utf8');
+        shell: bash
+        run: |
+          {
+            echo "## Upstream sync requires manual conflict resolution"
+            echo
+            echo "No pull request was created because the upstream merge is not clean."
+            echo
+            echo "The affected files and generated patch are available in the workflow artifact:"
+            echo "**upstream-sync-conflict-report**"
+            echo
+            echo "Download that artifact, resolve the listed files locally, test the result, and push the resolved changes to main."
+            echo
+            echo "The custom OBS download workflow was preserved and no changes were pushed to main by this workflow."
+          } >> "$GITHUB_STEP_SUMMARY"
 
-            const title = 'Upstream sync requires manual conflict resolution';
-            const body = report + '\n\n## Workflow run\n' +
-              process.env.RUN_URL + '\n\n' +
-              'The workflow deliberately did not create a pull request containing unresolved files or conflict markers.\n' +
-              'Download the upstream-sync-conflict-report artifact from the workflow run for the generated patch.';
-
-            const owner = context.repo.owner;
-            const repo = context.repo.repo;
-
-            const openIssues = await github.paginate(
-              github.rest.issues.listForRepo,
-              {
-                owner,
-                repo,
-                state: 'open',
-                per_page: 100
-              }
-            );
-
-            const existing = openIssues.find(issue => issue.title === title);
-
-            if (existing) {
-              await github.rest.issues.update({
-                owner,
-                repo,
-                issue_number: existing.number,
-                body
-              });
-
-              console.log('Updated existing conflict issue #' + existing.number);
-            } else {
-              const created = await github.rest.issues.create({
-                owner,
-                repo,
-                title,
-                body
-              });
-
-              console.log('Created conflict issue #' + created.data.number);
-            }
+          echo "Conflict report uploaded. No pull request was created."
 
       - name: Create upstream sync pull request
         if: steps.apply.outputs.conflict != 'true' && steps.apply.outputs.has_changes == 'true'
