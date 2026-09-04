@@ -19,8 +19,6 @@ interface WebSocketMessage {
 export function WebSocketProvider({ children }: { children: ReactNode }) {
   // Get the auth session to properly handle authentication
   const { session } = useAuth();
-  // Ref to track if we've already handled a version mismatch (prevent multiple reloads)
-  const versionCheckHandled = useRef(false);
   // Ref to track if this is a reconnection (not initial connection)
   const hasConnectedBefore = useRef(false);
 
@@ -62,22 +60,6 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
         const data: WebSocketMessage = JSON.parse(event.data);
         if (data.method !== 'RecordingPreviewFrame') {
           console.log('WebSocket message received:', data);
-        }
-
-        // Handle version check
-        if (data.method === 'AppVersion' && !versionCheckHandled.current) {
-          versionCheckHandled.current = true;
-          const backendVersion = data.content?.version;
-
-          if (backendVersion && backendVersion !== __APP_VERSION__) {
-            console.log(
-              `Version mismatch: Backend ${backendVersion}, Frontend ${__APP_VERSION__}. Reloading...`,
-            );
-            // Store the old version before reloading
-            localStorage.setItem('oldAppVersion', __APP_VERSION__);
-            window.location.reload();
-            return;
-          }
         }
 
         // Dispatch the message to all listeners

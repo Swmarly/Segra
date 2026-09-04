@@ -1,4 +1,3 @@
-using System.Linq;
 using Segra.Backend.Core;
 using Segra.Backend.Core.Models;
 
@@ -22,24 +21,42 @@ namespace Segra.Backend.Games
         public int ReplayBufferDuration { get; set; } = 30;
         public int ReplayBufferMaxSize { get; set; } = 1000;
         public bool DiscardSessionsWithoutBookmarks { get; set; }
+        public bool EnableHdr { get; set; } = true;
+
+        // Multiplier applied on top of each audio source's configured device volume.
+        public float VolumeMultiplier { get; set; } = 1.0f;
     }
 
     public static class GameSettingsService
     {
         /// <summary>
         /// Finds the per-game settings entry whose executable patterns match the given path, or null.
+        /// Pathless settings (Steam-only catalog games) are matched via the resolved catalog entry.
         /// </summary>
         public static GameSetting? FindForExePath(string? exePath)
         {
             if (string.IsNullOrEmpty(exePath)) return null;
 
+            var pathless = new List<GameSetting>();
             foreach (var game in Settings.Instance.Games)
             {
+                if (game.Paths.Count == 0)
+                {
+                    pathless.Add(game);
+                    continue;
+                }
                 if (game.Paths.Any(path => GameUtils.MatchesExePattern(exePath, path)))
                     return game;
             }
 
-            return null;
+            if (pathless.Count == 0) return null;
+
+            var entry = GameUtils.ResolveEntryFromExePath(exePath);
+            if (entry == null) return null;
+
+            return pathless.FirstOrDefault(game => game.IgdbId.HasValue
+                ? game.IgdbId == entry.Igdb?.Id
+                : string.Equals(game.Name, entry.Name, StringComparison.OrdinalIgnoreCase));
         }
 
         /// <summary>
@@ -64,7 +81,8 @@ namespace Segra.Backend.Games
                 RecordingMode = s.RecordingMode,
                 ReplayBufferDuration = s.ReplayBufferDuration,
                 ReplayBufferMaxSize = s.ReplayBufferMaxSize,
-                DiscardSessionsWithoutBookmarks = s.DiscardSessionsWithoutBookmarks
+                DiscardSessionsWithoutBookmarks = s.DiscardSessionsWithoutBookmarks,
+                EnableHdr = s.EnableHdr
             };
 
             var match = FindForExePath(exePath);
@@ -82,6 +100,16 @@ namespace Segra.Backend.Games
             if (match.DiscardSessionsWithoutBookmarksOverride.HasValue)
             {
                 eff.DiscardSessionsWithoutBookmarks = match.DiscardSessionsWithoutBookmarksOverride.Value;
+            }
+
+            if (match.EnableHdrOverride.HasValue)
+            {
+                eff.EnableHdr = match.EnableHdrOverride.Value;
+            }
+
+            if (match.VolumeOverride.HasValue)
+            {
+                eff.VolumeMultiplier = match.VolumeOverride.Value;
             }
 
             return eff;

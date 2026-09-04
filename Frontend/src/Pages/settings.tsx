@@ -16,13 +16,7 @@ import MenuCustomizationSection from '../Components/Settings/MenuCustomizationSe
 import AdvancedSection from '../Components/Settings/AdvancedSection';
 
 type SectionId =
-  | 'account'
-  | 'recording'
-  | 'clips'
-  | 'games'
-  | 'storage'
-  | 'preferences'
-  | 'advanced';
+  'account' | 'recording' | 'clips' | 'games' | 'storage' | 'preferences' | 'advanced';
 
 const ALL_NAV_ITEMS: { id: SectionId; label: string }[] = [
   { id: 'account', label: 'Account' },
@@ -45,7 +39,7 @@ function SectionHeader({ id, children }: { id: string; children: React.ReactNode
 }
 
 export default function Settings() {
-  const { openReleaseNotesModal } = useUpdate();
+  const { openReleaseNotesModal, checkForUpdates, canSelfUpdate } = useUpdate();
   const settings = useSettings();
   const updateSettings = useSettingsUpdater();
   // Airplane mode removes the Account section entirely (no login/cloud UI).
@@ -179,6 +173,8 @@ export default function Settings() {
           settings={settings}
           updateSettings={updateSettings}
           openReleaseNotesModal={openReleaseNotesModal}
+          checkForUpdates={checkForUpdates}
+          canSelfUpdate={canSelfUpdate}
         />
       </div>
     </div>

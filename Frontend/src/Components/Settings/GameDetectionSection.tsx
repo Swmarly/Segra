@@ -9,10 +9,21 @@ import {
   RecordingMode,
 } from '../../Models/types';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Search, Gamepad2, X, ChevronLeft, ChevronRight, Plus } from 'lucide-react';
+import {
+  Search,
+  Gamepad2,
+  X,
+  ChevronLeft,
+  ChevronRight,
+  Plus,
+  VolumeX,
+  Volume2,
+} from 'lucide-react';
 import { useModal } from '../../Context/ModalContext';
 import CustomGameModal from '../CustomGameModal';
 import DropdownSelect from '../DropdownSelect';
+import RangeSlider from '../RangeSlider';
+import { useDeleteConfirmation } from '../../Hooks/useDeleteConfirmation';
 
 const BITRATE_OPTIONS = Array.from({ length: 19 }, (_, i) => (i + 2) * 5); // 10..100 Mbps
 
@@ -112,6 +123,7 @@ export default function GameDetectionSection() {
   const updateSettings = useSettingsUpdater();
   const appState = useAppState();
   const { openModal, closeModal } = useModal();
+  const confirmDelete = useDeleteConfirmation();
 
   const [searchQuery, setSearchQuery] = useState('');
   const [showDropdown, setShowDropdown] = useState(false);
@@ -209,6 +221,8 @@ export default function GameDetectionSection() {
       qualityOverride: null,
       recordingModeOverride: null,
       discardSessionsWithoutBookmarksOverride: null,
+      enableHdrOverride: null,
+      volumeOverride: null,
     });
     setSearchQuery('');
     setShowDropdown(false);
@@ -229,6 +243,8 @@ export default function GameDetectionSection() {
             qualityOverride: null,
             recordingModeOverride: null,
             discardSessionsWithoutBookmarksOverride: null,
+            enableHdrOverride: null,
+            volumeOverride: null,
           })
         }
         onClose={closeModal}
@@ -241,8 +257,15 @@ export default function GameDetectionSection() {
   };
 
   const removeGame = (name: string) => {
-    updateSettings({ games: games.filter((g) => g.name !== name) });
-    if (selectedName === name) setSelectedName(null);
+    confirmDelete({
+      title: 'Remove game settings?',
+      description: `Remove ${name} and all of its recording overrides? Existing recordings will not be deleted.`,
+      confirmText: 'Remove',
+      onConfirm: () => {
+        updateSettings({ games: games.filter((g) => g.name !== name) });
+        if (selectedName === name) setSelectedName(null);
+      },
+    });
   };
 
   return (
@@ -253,6 +276,23 @@ export default function GameDetectionSection() {
         override your recording settings for that game. Most games are detected automatically, so
         add one only if it isn&apos;t being recorded, or when you want different settings for it.
       </p>
+
+      {/* Global auto-record toggle */}
+      <label className="flex items-center gap-3 cursor-pointer p-4 bg-base-200 rounded-lg border border-base-400 mb-5">
+        <input
+          type="checkbox"
+          className="checkbox checkbox-primary checkbox-sm"
+          checked={settings.autoRecordGames}
+          onChange={(e) => updateSettings({ autoRecordGames: e.target.checked })}
+        />
+        <div>
+          <div className="font-semibold">Auto-record Games</div>
+          <div className="text-xs opacity-70 mt-0.5">
+            Automatically start recording when a game launches. Games you&apos;ve added with
+            recording enabled and manual recordings are unaffected.
+          </div>
+        </div>
+      </label>
 
       {/* Add game search */}
       <div className="mb-5 relative" ref={searchRef}>
@@ -417,6 +457,7 @@ function GamePanel({
 }) {
   const q = game.qualityOverride;
   const mode = game.recordingModeOverride;
+  const [draggingVolume, setDraggingVolume] = useState<number | null>(null);
 
   // Quality override helpers ------------------------------------------------
   const enableQuality = () =>
@@ -611,6 +652,57 @@ function GamePanel({
           />
           <span>Discard Session Recordings Without Manual Bookmarks</span>
         </label>
+      </OverrideSection>
+
+      {/* HDR recording override */}
+      <OverrideSection
+        title="HDR Recording"
+        description="Override whether HDR recording is enabled for this game (e.g. disable it for games where HDR injection tools break capture)."
+        enabled={game.enableHdrOverride != null}
+        onToggle={(enabled) => onUpdate({ enableHdrOverride: enabled ? settings.enableHdr : null })}
+      >
+        <label className="flex items-center gap-2 cursor-pointer">
+          <input
+            type="checkbox"
+            className="checkbox checkbox-primary checkbox-sm"
+            checked={game.enableHdrOverride ?? false}
+            onChange={(e) => onUpdate({ enableHdrOverride: e.target.checked })}
+          />
+          <span>Record in HDR when the display supports it</span>
+        </label>
+      </OverrideSection>
+
+      {/* Recording volume override */}
+      <OverrideSection
+        title="Recording Volume"
+        description="Override the captured game/system audio volume for this game, without changing your own in-game or Windows volume."
+        enabled={game.volumeOverride != null}
+        onToggle={(enabled) => onUpdate({ volumeOverride: enabled ? 1.0 : null })}
+      >
+        <div className="flex items-center gap-3">
+          <VolumeX className="w-4 h-4 text-gray-400 shrink-0" />
+          <RangeSlider
+            min="0"
+            max="2"
+            step="0.02"
+            value={draggingVolume ?? game.volumeOverride ?? 1.0}
+            onChange={(e) => setDraggingVolume(parseFloat(e.target.value))}
+            onMouseDown={(e) => setDraggingVolume(parseFloat(e.currentTarget.value))}
+            onMouseUp={(e) => {
+              onUpdate({ volumeOverride: parseFloat(e.currentTarget.value) });
+              setDraggingVolume(null);
+            }}
+            onTouchEnd={() => {
+              onUpdate({ volumeOverride: draggingVolume ?? game.volumeOverride ?? 1.0 });
+              setDraggingVolume(null);
+            }}
+            className="w-48"
+          />
+          <Volume2 className="w-4 h-4 text-gray-400 shrink-0" />
+          <span className="text-xs w-10 text-right">
+            {Math.round((draggingVolume ?? game.volumeOverride ?? 1.0) * 100)}%
+          </span>
+        </div>
       </OverrideSection>
     </div>
   );

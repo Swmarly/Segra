@@ -1,7 +1,9 @@
-import React, { useLayoutEffect, useRef, useState } from 'react';
+import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { SegmentCardProps } from '../Models/types';
 import { useDrag, useDrop } from 'react-dnd';
 import { Headphones } from 'lucide-react';
+import { useDeleteConfirmation } from '../Hooks/useDeleteConfirmation';
+import AudioTrackIcon from './AudioTrackIcon';
 
 const DRAG_TYPE = 'SEGMENT_CARD';
 
@@ -15,6 +17,7 @@ const SegmentCard: React.FC<SegmentCardProps> = React.memo(
     setHoveredSegmentId,
     removeSegment,
     audioTrackNames,
+    audioTrackTypes,
     onMutedAudioTracksChange,
     onAudioTrackVolumesChange,
   }) => {
@@ -27,15 +30,18 @@ const SegmentCard: React.FC<SegmentCardProps> = React.memo(
 
     const indexRef = useRef(index);
     const moveCardRef = useRef(moveCard);
+    const audioMenuOpenRef = useRef(false);
     useLayoutEffect(() => {
       indexRef.current = index;
       moveCardRef.current = moveCard;
+      audioMenuOpenRef.current = !!audioMenuPos?.visible;
     });
 
     const [{ isDragging }, dragRef] = useDrag(
       () => ({
         type: DRAG_TYPE,
         item: { index },
+        canDrag: () => !audioMenuOpenRef.current,
         collect: (monitor) => ({
           isDragging: monitor.isDragging(),
         }),
@@ -62,6 +68,26 @@ const SegmentCard: React.FC<SegmentCardProps> = React.memo(
     };
 
     const { startTime, endTime, thumbnailDataUrl, isLoading } = segment;
+    const confirmDelete = useDeleteConfirmation();
+
+    // Fade the first thumbnail in and crossfade later ones over the current
+    // image, instead of flashing a loading state.
+    const [baseSrc, setBaseSrc] = useState(thumbnailDataUrl);
+    const [baseVisible, setBaseVisible] = useState(!!thumbnailDataUrl);
+    const [incomingSrc, setIncomingSrc] = useState<string | null>(null);
+    const [incomingVisible, setIncomingVisible] = useState(false);
+
+    useEffect(() => {
+      if (!thumbnailDataUrl || thumbnailDataUrl === baseSrc) return;
+      if (!baseSrc) {
+        // First thumbnail: mount it hidden and fade it in.
+        setBaseSrc(thumbnailDataUrl);
+        setBaseVisible(false);
+        return;
+      }
+      setIncomingSrc(thumbnailDataUrl);
+      setIncomingVisible(false);
+    }, [thumbnailDataUrl, baseSrc]);
     const hasAudioTracks =
       audioTrackNames && audioTrackNames.length > 1 && onMutedAudioTracksChange;
     const mutedTracks = segment.mutedAudioTracks ?? [];
@@ -100,23 +126,51 @@ const SegmentCard: React.FC<SegmentCardProps> = React.memo(
         }}
         onContextMenu={(e) => {
           e.preventDefault();
-          removeSegment(segment.id);
+          confirmDelete({
+            title: 'Delete segment?',
+            description: 'Remove this segment from the clip? This action cannot be undone.',
+            onConfirm: () => removeSegment(segment.id),
+          });
         }}
       >
-        {isLoading ? (
-          <div className="flex items-center justify-center bg-base-100 bg-opacity-75 rounded-xl w-full aspect-video">
-            <span className="loading loading-spinner loading-md text-accent" />
-            <div className="absolute bottom-2 right-2 bg-black/75 text-white text-xs px-2 py-1 rounded">
-              {formatTime(startTime)} - {formatTime(endTime)}
-            </div>
-          </div>
-        ) : thumbnailDataUrl ? (
+        {baseSrc ? (
           <figure className="relative rounded-xl overflow-hidden">
-            <img src={thumbnailDataUrl} alt="Segment" className="w-full" />
+            <img
+              src={baseSrc}
+              alt="Segment"
+              className={`w-full transition-opacity duration-300 ${
+                baseVisible ? 'opacity-100' : 'opacity-0'
+              }`}
+              onLoad={() => requestAnimationFrame(() => setBaseVisible(true))}
+            />
+            {incomingSrc && (
+              <img
+                src={incomingSrc}
+                alt="Segment"
+                className={`absolute inset-0 w-full transition-opacity duration-300 ${
+                  incomingVisible ? 'opacity-100' : 'opacity-0'
+                }`}
+                onLoad={() => requestAnimationFrame(() => setIncomingVisible(true))}
+                onTransitionEnd={() => {
+                  setBaseSrc(incomingSrc);
+                  setBaseVisible(true);
+                  setIncomingSrc(null);
+                  setIncomingVisible(false);
+                }}
+              />
+            )}
             <div className="absolute bottom-2 right-2 bg-black/75 text-white text-xs px-2 py-1 rounded">
               {formatTime(startTime)} - {formatTime(endTime)}
             </div>
           </figure>
+        ) : isLoading || thumbnailDataUrl ? (
+          // Reserve 16:9 space while the first thumbnail loads so it fades in
+          // without shifting the layout.
+          <div className="relative w-full aspect-video rounded-xl bg-base-100/40">
+            <div className="absolute bottom-2 right-2 bg-black/75 text-white text-xs px-2 py-1 rounded">
+              {formatTime(startTime)} - {formatTime(endTime)}
+            </div>
+          </div>
         ) : (
           <div className="h-32 bg-gray-700 flex items-center justify-center text-white">
             <span>No thumbnail</span>
@@ -164,6 +218,10 @@ const SegmentCard: React.FC<SegmentCardProps> = React.memo(
                 }`}
                 style={{ right: window.innerWidth - audioMenuPos.x, top: audioMenuPos.y }}
                 onClick={(e) => e.stopPropagation()}
+                onDragStart={(e) => e.preventDefault()}
+                onTransitionEnd={() =>
+                  setAudioMenuPos((prev) => (prev && !prev.visible ? null : prev))
+                }
               >
                 {audioTrackNames.map((name, i) => {
                   const isMuted = mutedTracks.includes(i);
@@ -176,6 +234,10 @@ const SegmentCard: React.FC<SegmentCardProps> = React.memo(
                           checked={!isMuted}
                           onChange={() => toggleTrack(i)}
                           className="checkbox checkbox-primary checkbox-xs shrink-0"
+                        />
+                        <AudioTrackIcon
+                          type={audioTrackTypes?.[i]}
+                          className="h-3.5 w-3.5 shrink-0 text-white/60"
                         />
                         <span className="text-xs text-white/80 truncate">
                           {name.replace(' (Default)', '')}
@@ -218,5 +280,4 @@ const SegmentCard: React.FC<SegmentCardProps> = React.memo(
   },
 );
 
-export { DRAG_TYPE };
 export default SegmentCard;

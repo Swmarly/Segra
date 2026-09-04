@@ -1,16 +1,18 @@
 using Serilog;
-using Segra.Backend.Games.ApexLegends;
 using Segra.Backend.Games.Pubg;
 using Segra.Backend.Games.Rust;
 using Segra.Backend.Core.Models;
 using Segra.Backend.Games.Dota2;
 using Segra.Backend.Games.Minecraft;
 using Segra.Backend.Games.WarThunder;
-using Segra.Backend.Games.RocketLeague;
 using Segra.Backend.Games.CounterStrike2;
-using Segra.Backend.Games.GrandTheftAuto;
 using Segra.Backend.Games.LeagueOfLegends;
 using Segra.Backend.Games.RunescapeDragonwilds;
+#if WINDOWS
+using Segra.Backend.Games.ApexLegends;
+using Segra.Backend.Games.RocketLeague;
+using Segra.Backend.Games.GrandTheftAuto;
+#endif
 
 namespace Segra.Backend.Games
 {
@@ -54,6 +56,7 @@ namespace Segra.Backend.Games
                     _gameIntegration = new LeagueOfLegendsIntegration();
                 else if ((igdbId == CS2_IGDB_ID || gameName?.Equals("Counter-Strike 2", StringComparison.OrdinalIgnoreCase) == true) && integrations.CounterStrike2.Enabled)
                     _gameIntegration = new CounterStrike2Integration();
+#if WINDOWS
                 else if ((gameName?.Equals("Apex Legends", StringComparison.OrdinalIgnoreCase) == true
                           || gameName?.Contains("Apex Legends", StringComparison.OrdinalIgnoreCase) == true
                           || Path.GetFileName(exePath)?.Equals("r5apex.exe", StringComparison.OrdinalIgnoreCase) == true
@@ -62,6 +65,7 @@ namespace Segra.Backend.Games
                     _gameIntegration = new ApexLegendsIntegration();
                 else if ((igdbId == ROCKET_LEAGUE_IGDB_ID || gameName?.Equals("Rocket League", StringComparison.OrdinalIgnoreCase) == true) && integrations.RocketLeague.Enabled)
                     _gameIntegration = new RocketLeagueIntegration();
+#endif
                 else if ((igdbId == DOTA2_IGDB_ID || gameName?.Equals("Dota 2", StringComparison.OrdinalIgnoreCase) == true) && integrations.Dota2.Enabled)
                     _gameIntegration = new Dota2Integration();
                 else if ((igdbId == RUST_IGDB_ID || gameName?.Equals("Rust", StringComparison.OrdinalIgnoreCase) == true) && integrations.Rust.Enabled)
@@ -72,11 +76,13 @@ namespace Segra.Backend.Games
                     _gameIntegration = new RunescapeDragonwildsIntegration();
                 else if ((igdbId == WAR_THUNDER_IGDB_ID || gameName?.Equals("War Thunder", StringComparison.OrdinalIgnoreCase) == true) && integrations.WarThunder.Enabled)
                     _gameIntegration = new WarThunderIntegration();
+#if WINDOWS
                 else if ((igdbId == GTA_V_IGDB_ID || igdbId == FIVEM_IGDB_ID || igdbId == RAGE_MP_IGDB_ID
                           || gameName?.Contains("Grand Theft Auto", StringComparison.OrdinalIgnoreCase) == true
                           || gameName?.Contains("FiveM", StringComparison.OrdinalIgnoreCase) == true
                           || gameName?.Contains("Rage Multiplayer", StringComparison.OrdinalIgnoreCase) == true) && integrations.Gta.Enabled)
                     _gameIntegration = new GtaIntegration();
+#endif
 
                 if (_gameIntegration == null)
                     return;

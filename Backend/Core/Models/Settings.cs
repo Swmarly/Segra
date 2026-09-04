@@ -1,6 +1,6 @@
 using Serilog;
 using Segra.Backend.App;
-using Segra.Backend.Core;
+using Segra.Backend.Platform;
 using System.Text.Json.Serialization;
 
 namespace Segra.Backend.Core.Models
@@ -45,6 +45,7 @@ namespace Segra.Backend.Core.Models
         private bool _forceMonoInputSources = false;
         private Display? _selectedDisplay = null;
         private DisplayCaptureMethod _displayCaptureMethod = DisplayCaptureMethod.Auto;
+        private WindowState? _lastWindowState = null;
         private bool _enableAi = true;
         private bool _autoGenerateHighlights = true;
         private bool _highlightKeepSeparateAudioTracks = false;
@@ -53,6 +54,7 @@ namespace Segra.Backend.Core.Models
         private double _highlightPaddingAfter = 4;
         private bool _runOnStartup = false;
         private StartupWindowMode _startupWindowMode = StartupWindowMode.Minimized;
+        private CloseButtonAction _closeButtonAction = CloseButtonAction.Minimize;
         private bool _receiveBetaUpdates = false;
         private bool _airplaneMode = false;
         private RecordingMode _recordingMode = RecordingMode.Hybrid;
@@ -60,6 +62,7 @@ namespace Segra.Backend.Core.Models
         private int _replayBufferMaxSize = 1000;
         private List<Keybind> _keybindings;
         private List<GameSetting> _games = new List<GameSetting>();
+        private bool _autoRecordGames = true;
         private Auth _auth = new Auth();
         private bool _clipClearSegmentsAfterCreatingClip = false;
         private bool _clipShowInBrowserAfterUpload = false;
@@ -71,6 +74,7 @@ namespace Segra.Backend.Core.Models
         private string _clipAudioQuality = "128k";
         private string _clipPreset = "veryfast";
         private bool _clipKeepSeparateAudioTracks = false;
+        private List<int> _copyCompressSizesMb = new List<int> { 20, 50, 100, 500 };
         private float _soundEffectsVolume = 0.5f;
         private bool _showNewBadgeOnVideos = false;
         private bool _showGameBackground = true;
@@ -80,6 +84,7 @@ namespace Segra.Backend.Core.Models
         private bool _inputNoiseSuppression = true;
         private string _videoQualityPreset = "high";
         private string _clipQualityPreset = "standard";
+        private bool _confirmBeforeDeleting = false;
         private bool _removeOriginalAfterCompression = false;
         private bool _discardSessionsWithoutBookmarks = false;
         private bool _disableWindowsGameMode = false;
@@ -131,11 +136,11 @@ namespace Segra.Backend.Core.Models
         private void SetDefaultResolution()
         {
             int screenHeight = 1080; // Fallback value
-            var primaryScreen = Screen.PrimaryScreen;
 
-            if (primaryScreen != null)
+            if (PlatformServices.Display != null &&
+                PlatformServices.Display.GetPrimaryMonitorPhysicalResolution(out _, out uint height) && height > 0)
             {
-                screenHeight = primaryScreen.Bounds.Height;
+                screenHeight = (int)height;
             }
 
             if (screenHeight >= 2160)
@@ -374,6 +379,17 @@ namespace Segra.Backend.Core.Models
             }
         }
 
+        // Last known main-window position, restored on next launch. Backend-only.
+        [JsonPropertyName("lastWindowState")]
+        public WindowState? LastWindowState
+        {
+            get => _lastWindowState;
+            set
+            {
+                _lastWindowState = value;
+            }
+        }
+
         [JsonPropertyName("enableAi")]
         public bool EnableAi
         {
@@ -472,7 +488,7 @@ namespace Segra.Backend.Core.Models
                 if (_runOnStartup != value)
                 {
                     _runOnStartup = value;
-                    StartupService.SetStartupStatus(value);
+                    PlatformServices.Startup.SetStartupStatus(value);
                 }
             }
         }
@@ -487,6 +503,19 @@ namespace Segra.Backend.Core.Models
                 if (_startupWindowMode != value)
                 {
                     _startupWindowMode = value;
+                }
+            }
+        }
+
+        [JsonPropertyName("closeButtonAction")]
+        public CloseButtonAction CloseButtonAction
+        {
+            get => _closeButtonAction;
+            set
+            {
+                if (_closeButtonAction != value)
+                {
+                    _closeButtonAction = value;
                 }
             }
         }
@@ -541,6 +570,15 @@ namespace Segra.Backend.Core.Models
             {
                 _games = value ?? new List<GameSetting>();
             }
+        }
+
+        // When false, Segra won't automatically start recording when a game launches.
+        // Explicit per-game entries (Record == true) still record, and manual recording still works.
+        [JsonPropertyName("autoRecordGames")]
+        public bool AutoRecordGames
+        {
+            get => _autoRecordGames;
+            set => _autoRecordGames = value;
         }
 
         // Legacy lists kept only so the pre-rework whitelist/blacklist survive a settings load until the
@@ -640,6 +678,17 @@ namespace Segra.Backend.Core.Models
                 {
                     _clipShowInBrowserAfterUpload = value;
                 }
+            }
+        }
+
+        // Hidden setting (no UI), editable via settings.json
+        [JsonPropertyName("copyCompressSizesMb")]
+        public List<int> CopyCompressSizesMb
+        {
+            get => _copyCompressSizesMb;
+            set
+            {
+                _copyCompressSizesMb = value ?? new List<int> { 20, 50, 100, 500 };
             }
         }
 
@@ -847,6 +896,19 @@ namespace Segra.Backend.Core.Models
                 if (_clipQualityPreset != value)
                 {
                     _clipQualityPreset = value;
+                }
+            }
+        }
+
+        [JsonPropertyName("confirmBeforeDeleting")]
+        public bool ConfirmBeforeDeleting
+        {
+            get => _confirmBeforeDeleting;
+            set
+            {
+                if (_confirmBeforeDeleting != value)
+                {
+                    _confirmBeforeDeleting = value;
                 }
             }
         }
@@ -1092,6 +1154,9 @@ namespace Segra.Backend.Core.Models
         [JsonPropertyName("audioTrackNames")]
         public List<string>? AudioTrackNames { get; set; }
 
+        [JsonPropertyName("audioTrackTypes")]
+        public List<string>? AudioTrackTypes { get; set; }
+
         public void AddBookmark(Bookmark bookmark)
         {
             lock (_bookmarksLock)
@@ -1131,6 +1196,10 @@ namespace Segra.Backend.Core.Models
             Highlight
         }
 
+        // Stable identity for the metadata, thumbnail and waveform files, so renaming the
+        // video never has to move them and titles can't collide across game folders.
+        public string Id { get; set; } = string.Empty;
+
         public ContentType Type { get; set; } = ContentType.Session;
 
         public string Title { get; set; } = string.Empty;
@@ -1166,11 +1235,17 @@ namespace Segra.Backend.Core.Models
 
         public DateTime CreatedAt { get; set; }
 
-        public AiAnalysis? AiAnalysis { get; set; }
-
         public string? UploadId { get; set; }
 
         public int? IgdbId { get; set; }
+
+        // Full path of the game exe this video was recorded from, for diagnostics.
+        private string? _gameExePath;
+        public string? GameExePath
+        {
+            get => _gameExePath;
+            set => _gameExePath = Segra.Backend.Shared.PathUtils.NormalizeOrNull(value);
+        }
 
         // Names for the audio tracks in the recording/container.
         // Track 1 is always the mixed track ("Full Mix").
@@ -1178,12 +1253,13 @@ namespace Segra.Backend.Core.Models
         // in the same order they are added (inputs, then outputs), up to 6 total tracks in OBS.
         public List<string>? AudioTrackNames { get; set; }
 
-        public bool IsImported { get; set; } = false;
-    }
+        // Semantic type for each audio track: "mix", "input", or "output".
+        // Kept parallel to AudioTrackNames so older metadata remains compatible.
+        public List<string>? AudioTrackTypes { get; set; }
 
-    public class AiAnalysis
-    {
-        public string? Id { get; set; }
+        public bool IsImported { get; set; } = false;
+
+        public bool Compressed { get; set; } = false;
     }
 
     internal class AudioDevice : IEquatable<AudioDevice>
@@ -1267,6 +1343,13 @@ namespace Segra.Backend.Core.Models
     {
         Normal,
         Minimized
+    }
+
+    [JsonConverter(typeof(JsonStringEnumConverter))]
+    public enum CloseButtonAction
+    {
+        Minimize,
+        Exit
     }
 
     [JsonConverter(typeof(JsonStringEnumConverter))]
@@ -1355,6 +1438,14 @@ namespace Segra.Backend.Core.Models
 
         [JsonPropertyName("discardSessionsWithoutBookmarksOverride")]
         public bool? DiscardSessionsWithoutBookmarksOverride { get; set; }
+
+        [JsonPropertyName("enableHdrOverride")]
+        public bool? EnableHdrOverride { get; set; }
+
+        // Multiplier applied on top of the configured device volume for this game's captured
+        // audio (desktop/game capture), independent of the player's own in-game/OS volume.
+        [JsonPropertyName("volumeOverride")]
+        public float? VolumeOverride { get; set; }
     }
 
     // Mirrors the global video quality settings. When Preset is "low"/"standard"/"high" the concrete
