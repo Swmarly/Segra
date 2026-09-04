@@ -9,6 +9,7 @@ on:
 permissions:
   contents: write
   pull-requests: write
+  issues: write
 
 jobs:
   sync:
@@ -31,6 +32,7 @@ jobs:
           git fetch --no-tags upstream main
 
       - name: Apply upstream changes safely
+        id: apply
         shell: bash
         run: |
           set -euo pipefail
@@ -38,33 +40,59 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
+          write_conflict_report() {
+            local reason="$1"
+            local files="$2"
+
+            {
+              echo "# Upstream sync requires manual conflict resolution"
+              echo
+              echo "The automated sync did not create or update a pull request because the merge was not clean."
+              echo
+              echo "Reason: $reason"
+              echo
+              echo "Affected files:"
+              printf '%s\n' "$files"
+              echo
+              echo "The upstream source is:"
+              echo "https://github.com/Segergren/Segra"
+              echo
+              echo "The custom OBS download workflow was preserved. No files were pushed to main."
+            } > upstream-conflict-report.md
+
+            git diff --cc --binary > upstream-conflicts.patch || true
+            git reset --hard HEAD
+
+            echo "conflict=true" >> "$GITHUB_OUTPUT"
+            echo "has_changes=false" >> "$GITHUB_OUTPUT"
+          }
+
           merge_failed=false
 
           if ! git merge --squash --no-commit upstream/main; then
             merge_failed=true
 
-            # The custom .gitattributes file must remain ours.
+            # This is the only conflict the automation resolves automatically.
             git checkout --ours -- .gitattributes 2>/dev/null || true
             git add -- .gitattributes 2>/dev/null || true
 
-            unresolved="$(git diff --name-only --diff-filter=U)"
+            unresolved="$(git diff --name-only --diff-filter=U || true)"
 
             if [ -n "$unresolved" ]; then
-              echo "::error::Upstream changes require manual conflict resolution:"
-              echo "$unresolved"
-              git reset --hard HEAD
-              exit 1
+              write_conflict_report "Git reported unresolved merge conflicts." "$unresolved"
+              exit 0
             fi
           fi
 
           # Always preserve the fork's custom Git LFS/storage configuration.
           git restore --source=HEAD -- .gitattributes
 
-          # Never allow unresolved conflict markers into a pull request.
-          if git grep -n -I -E '^(<<<<<<<|=======|>>>>>>>)' -- .; then
-            echo "::error::Conflict markers were found after the upstream merge. No PR will be created."
-            git reset --hard HEAD
-            exit 1
+          # Never allow literal conflict markers into a pull request.
+          marker_files="$(git grep -l -I -E '^(<<<<<<<|=======|>>>>>>>)' -- . || true)"
+
+          if [ -n "$marker_files" ]; then
+            write_conflict_report "Conflict markers were found in the merged working tree." "$marker_files"
+            exit 0
           fi
 
           # Never reintroduce upstream OBS archives or Git LFS pointer files.
@@ -73,24 +101,25 @@ jobs:
 
           # Verify the custom download workflow still exists.
           if [ ! -f scripts/Download-ObsBundle.ps1 ]; then
-            echo "::error::scripts/Download-ObsBundle.ps1 is missing. No PR will be created."
-            git reset --hard HEAD
-            exit 1
+            write_conflict_report "scripts/Download-ObsBundle.ps1 is missing after the upstream merge." "scripts/Download-ObsBundle.ps1"
+            exit 0
           fi
 
           git add -A
 
           # Check again after staging, before the PR action sees the workspace.
-          if git diff --cached --name-only --diff-filter=U | grep -q .; then
-            echo "::error::Unresolved files remain after staging. No PR will be created."
-            git reset --hard HEAD
-            exit 1
+          unresolved="$(git diff --cached --name-only --diff-filter=U || true)"
+
+          if [ -n "$unresolved" ]; then
+            write_conflict_report "Unresolved files remained after staging." "$unresolved"
+            exit 0
           fi
 
-          if git grep -n -I -E '^(<<<<<<<|=======|>>>>>>>)' -- .; then
-            echo "::error::Conflict markers were found in the staged result. No PR will be created."
-            git reset --hard HEAD
-            exit 1
+          marker_files="$(git grep -l -I -E '^(<<<<<<<|=======|>>>>>>>)' -- . || true)"
+
+          if [ -n "$marker_files" ]; then
+            write_conflict_report "Conflict markers were found in the staged result." "$marker_files"
+            exit 0
           fi
 
           if [ "$merge_failed" = true ]; then
@@ -99,11 +128,7 @@ jobs:
             echo "Upstream merge completed without Git conflicts."
           fi
 
-      - name: Check whether changes exist
-        id: changes
-        shell: bash
-        run: |
-          set -euo pipefail
+          echo "conflict=false" >> "$GITHUB_OUTPUT"
 
           if git diff --cached --quiet; then
             echo "Already up to date: no upstream changes found."
@@ -114,8 +139,72 @@ jobs:
             echo "has_changes=true" >> "$GITHUB_OUTPUT"
           fi
 
+      - name: Upload conflict report
+        if: steps.apply.outputs.conflict == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: upstream-sync-conflict-report
+          path: |
+            upstream-conflict-report.md
+            upstream-conflicts.patch
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Create or update conflict issue
+        if: steps.apply.outputs.conflict == 'true'
+        uses: actions/github-script@v7
+        env:
+          REPORT_PATH: upstream-conflict-report.md
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const fs = require('fs');
+            const report = fs.readFileSync(process.env.REPORT_PATH, 'utf8');
+
+            const title = 'Upstream sync requires manual conflict resolution';
+            const body = report + '\n\n## Workflow run\n' +
+              process.env.RUN_URL + '\n\n' +
+              'The workflow deliberately did not create a pull request containing unresolved files or conflict markers.\n' +
+              'Download the upstream-sync-conflict-report artifact from the workflow run for the generated patch.';
+
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+
+            const openIssues = await github.paginate(
+              github.rest.issues.listForRepo,
+              {
+                owner,
+                repo,
+                state: 'open',
+                per_page: 100
+              }
+            );
+
+            const existing = openIssues.find(issue => issue.title === title);
+
+            if (existing) {
+              await github.rest.issues.update({
+                owner,
+                repo,
+                issue_number: existing.number,
+                body
+              });
+
+              console.log('Updated existing conflict issue #' + existing.number);
+            } else {
+              const created = await github.rest.issues.create({
+                owner,
+                repo,
+                title,
+                body
+              });
+
+              console.log('Created conflict issue #' + created.data.number);
+            }
+
       - name: Create upstream sync pull request
-        if: steps.changes.outputs.has_changes == 'true'
+        if: steps.apply.outputs.conflict != 'true' && steps.apply.outputs.has_changes == 'true'
         uses: peter-evans/create-pull-request@v8
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
