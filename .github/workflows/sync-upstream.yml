@@ -30,7 +30,7 @@ jobs:
           git remote add upstream https://github.com/Segergren/Segra.git
           git fetch --no-tags upstream main
 
-      - name: Apply upstream changes safely
+      - name: Apply only new upstream changes safely
         id: apply
         shell: bash
         run: |
@@ -66,19 +66,34 @@ jobs:
             echo "has_changes=false" >> "$GITHUB_OUTPUT"
           }
 
-          merge_failed=false
+          upstream_sha="$(git rev-parse upstream/main)"
+          sync_base="$(tr -d '[:space:]' < .github/upstream-sync-base || true)"
 
-          if ! git merge --squash --no-commit upstream/main; then
-            merge_failed=true
+          if [ -z "$sync_base" ]; then
+            write_conflict_report "The upstream sync baseline file is missing or empty." ".github/upstream-sync-base"
+            exit 0
+          fi
 
-            # This is the only conflict the automation resolves automatically.
-            git checkout --ours -- .gitattributes 2>/dev/null || true
-            git add -- .gitattributes 2>/dev/null || true
+          if ! git cat-file -e "$sync_base^{commit}" 2>/dev/null; then
+            write_conflict_report "The recorded upstream baseline is not available in the fetched history." ".github/upstream-sync-base"
+            exit 0
+          fi
 
-            unresolved="$(git diff --name-only --diff-filter=U || true)"
+          if [ "$sync_base" = "$upstream_sha" ]; then
+            echo "Official upstream is already synchronized at $upstream_sha."
+          else
+            echo "Applying upstream changes from $sync_base to $upstream_sha."
 
-            if [ -n "$unresolved" ]; then
-              write_conflict_report "Git reported unresolved merge conflicts." "$unresolved"
+            git diff --binary --no-renames "$sync_base" "$upstream_sha" > upstream-changes.patch
+
+            if ! git apply --3way --index upstream-changes.patch; then
+              conflict_files="$(git diff --name-only --diff-filter=U || true)"
+
+              if [ -z "$conflict_files" ]; then
+                conflict_files="$(git status --short || true)"
+              fi
+
+              write_conflict_report "New upstream changes overlap with local custom changes." "$conflict_files"
               exit 0
             fi
           fi
@@ -100,9 +115,12 @@ jobs:
 
           # Verify the custom download workflow still exists.
           if [ ! -f scripts/Download-ObsBundle.ps1 ]; then
-            write_conflict_report "scripts/Download-ObsBundle.ps1 is missing after the upstream merge." "scripts/Download-ObsBundle.ps1"
+            write_conflict_report "scripts/Download-ObsBundle.ps1 is missing after the upstream sync." "scripts/Download-ObsBundle.ps1"
             exit 0
           fi
+
+          # Record exactly which upstream commit has now been incorporated.
+          printf '%s\n' "$upstream_sha" > .github/upstream-sync-base
 
           git add -A
 
@@ -119,12 +137,6 @@ jobs:
           if [ -n "$marker_files" ]; then
             write_conflict_report "Conflict markers were found in the staged result." "$marker_files"
             exit 0
-          fi
-
-          if [ "$merge_failed" = true ]; then
-            echo "Upstream merge completed after resolving only the expected .gitattributes conflict."
-          else
-            echo "Upstream merge completed without Git conflicts."
           fi
 
           echo "conflict=false" >> "$GITHUB_OUTPUT"
@@ -156,12 +168,12 @@ jobs:
           {
             echo "## Upstream sync requires manual conflict resolution"
             echo
-            echo "No pull request was created because the upstream merge is not clean."
+            echo "No pull request was created because new upstream changes conflict with local custom changes."
             echo
             echo "The affected files and generated patch are available in the workflow artifact:"
             echo "**upstream-sync-conflict-report**"
             echo
-            echo "Download that artifact, resolve the listed files locally, test the result, and push the resolved changes to main."
+            echo "Download the artifact, resolve the listed files locally, test the result, and push the resolved changes to main."
             echo
             echo "The custom OBS download workflow was preserved and no changes were pushed to main by this workflow."
           } >> "$GITHUB_STEP_SUMMARY"
